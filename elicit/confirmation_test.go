@@ -2,6 +2,7 @@ package elicit_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -30,6 +31,17 @@ func TestDynamicConfirmationBuildsMessageFromInput(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "object", schema.Type)
 	require.Empty(t, schema.Properties, "confirmation requests no input fields")
+
+	// The map must be non-nil so the marshalled schema carries an explicit
+	// "properties":{}. A nil map omits the key entirely, which clients that
+	// validate elicitation requests (e.g. Claude Code) reject as a malformed
+	// requestedSchema — the bug this guards against.
+	require.NotNil(t, schema.Properties,
+		"properties must be a non-nil empty map, not omitted")
+	raw, err := json.Marshal(schema)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"type":"object","properties":{}}`, string(raw),
+		"requestedSchema must serialise properties as an empty object")
 }
 
 func TestDynamicConfirmationPropagatesDescribeError(t *testing.T) {
