@@ -42,7 +42,7 @@ func AddWriteFunc[In, Out any](
 		&mcp.ToolAnnotations{
 			ReadOnlyHint:    false,
 			IdempotentHint:  false,
-			DestructiveHint: new(true),
+			DestructiveHint: ptr(true),
 		},
 	)
 

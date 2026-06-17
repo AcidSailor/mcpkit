@@ -39,13 +39,12 @@ func TestAddRead_DecodeError(t *testing.T) {
 		}))
 
 	cs := newTestMCPSession(t, s)
-	// msg is an int but echoIn.Msg is a string: decode fails as a tool error.
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+	// go-sdk v1.4.0 decodes before our handler: bad input is a protocol error.
+	_, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"msg": 42},
 	})
-	require.NoError(t, err, "decode error is a tool-level error")
-	assert.True(t, res.IsError)
+	require.Error(t, err, "decode error surfaces as a protocol-level error")
 }
 
 func TestAddRead_ValidateFail(t *testing.T) {

@@ -30,7 +30,7 @@ documents, and driving in-memory tests. Library only (no command, no `main`).
 
 ## Requirements
 
-- Go 1.26 or later
+- Go 1.24 or later
 
 ## Installation
 

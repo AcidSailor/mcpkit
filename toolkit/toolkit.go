@@ -118,3 +118,9 @@ func (t Tool[In, Out]) runValidated(
 	}
 	return out, nil
 }
+
+// ptr returns a pointer to v, used for the SDK's *bool annotation hints. On
+// Go 1.26+ this is the built-in new(v).
+func ptr[T any](v T) *T {
+	return &v
+}

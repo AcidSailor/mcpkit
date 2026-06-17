@@ -12,7 +12,8 @@ serving, tool-registration, schema-assembly, and test helpers used across
 `acidsailor` MCP servers.
 
 - Module path: `github.com/acidsailor/mcpkit`
-- Go 1.26
+- Go 1.24 (backport branch; pins go-sdk v1.4.0, the last release supporting
+  Go 1.24 — `main` targets Go 1.26 on go-sdk v1.6.1)
 - The root package exports nothing (see `doc.go`); all functionality lives in
   subpackages.
 

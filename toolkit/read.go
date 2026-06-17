@@ -39,7 +39,7 @@ func AddReadFunc[In, Out any](
 		&mcp.ToolAnnotations{
 			ReadOnlyHint:    true,
 			IdempotentHint:  true,
-			DestructiveHint: new(false),
+			DestructiveHint: ptr(false),
 		},
 	)
 

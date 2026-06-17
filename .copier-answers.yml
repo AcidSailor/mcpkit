@@ -3,7 +3,7 @@ _commit: v1.2.0
 _src_path: gh:acidsailor/go-scaffolds
 author: Denis Shaporov / acidsailor
 author_email: d@shaporov.dev
-go_version: '1.26'
+go_version: '1.24'
 module_path: github.com/acidsailor/mcpkit
 project_name: mcpkit
 project_type: library
