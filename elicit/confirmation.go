@@ -28,7 +28,17 @@ func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 			// accept/decline/cancel decision, which Gate reads from the
 			// action. An empty object schema asks the client for no input
 			// beyond that choice.
-			RequestedSchema: &jsonschema.Schema{Type: "object"},
+			//
+			// Properties must be a non-nil (empty) map: jsonschema.Schema
+			// omits the "properties" key entirely when the map is nil, but
+			// the MCP elicitation contract requires requestedSchema.properties
+			// to be present (a record). A client validating the request
+			// against that union (e.g. Claude Code) rejects a schema whose
+			// properties is undefined, breaking every write tool's confirm.
+			RequestedSchema: &jsonschema.Schema{
+				Type:       "object",
+				Properties: map[string]*jsonschema.Schema{},
+			},
 		}, nil
 	}
 }
