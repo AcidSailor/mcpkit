@@ -110,6 +110,38 @@ func errorText(t *testing.T, res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
+func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
+	called := false
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+	// AddWriteFunc does not wrap the handler in elicit.Gate, so the write runs
+	// even under a session with no elicitation capability — the caller owns any
+	// confirmation. WithElicitParamsFunc is set to prove it is ignored here.
+	AddWriteFunc(
+		New(s, "do", "does", objectSchema(),
+			func(_ context.Context, in echoIn) (echoOut, error) {
+				return echoOut{Echo: in.Msg}, nil
+			}).
+			WithElicitParamsFunc(elicit.SimpleConfirmation[echoIn]("confirm?")),
+		func(
+			_ context.Context,
+			_ *mcp.CallToolRequest,
+			in echoIn,
+		) (*mcp.CallToolResult, echoOut, error) {
+			called = true
+			return nil, echoOut{Echo: in.Msg}, nil
+		},
+	)
+
+	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "do",
+		Arguments: map[string]any{"msg": "hi"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "handler must run without elicitation")
+	assert.True(t, called, "custom handler should run")
+}
+
 func TestAddWrite_ValidateBeforeElicit(t *testing.T) {
 	elicited := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)

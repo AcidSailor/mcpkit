@@ -12,17 +12,8 @@ import (
 // lacking elicitation capability get ErrNoElicitation. The prompt is set via
 // WithElicitParamsFunc; when unset the elicitation message is empty.
 func AddWrite[In, Out any](t Tool[In, Out]) {
-	tool := t.mcpTool(
-		&mcp.ToolAnnotations{
-			ReadOnlyHint:    false,
-			IdempotentHint:  false,
-			DestructiveHint: new(true),
-		},
-	)
-
-	mcp.AddTool(
-		t.server,
-		tool,
+	AddWriteFunc(
+		t,
 		func(
 			ctx context.Context,
 			req *mcp.CallToolRequest,
@@ -42,5 +33,30 @@ func AddWrite[In, Out any](t Tool[In, Out]) {
 			out, err := t.runValidated(ctx, in, gate)
 			return nil, out, err
 		},
+	)
+}
+
+// AddWriteFunc registers a state-mutating MCP tool (ReadOnlyHint=false,
+// IdempotentHint=false, DestructiveHint=true) with a caller-supplied handler.
+// Unlike AddWrite, the handler is NOT elicitation-gated and t.runValidated is
+// not applied: callFunc runs exactly as given, so the caller owns any
+// confirmation, validation, and result wrapping. AddWrite is the common case;
+// reach for AddWriteFunc only when you need full control of the handler.
+func AddWriteFunc[In, Out any](
+	t Tool[In, Out],
+	callFunc mcp.ToolHandlerFor[In, Out],
+) {
+	tool := t.mcpTool(
+		&mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			IdempotentHint:  false,
+			DestructiveHint: new(true),
+		},
+	)
+
+	mcp.AddTool(
+		t.server,
+		tool,
+		callFunc,
 	)
 }
