@@ -12,38 +12,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const (
-	defaultAddr              = ":8080"
-	defaultReadHeaderTimeout = 30 * time.Second
-	defaultShutdownTimeout   = 30 * time.Second
-)
+const defaultShutdownTimeout = 30 * time.Second
 
 // Server serves an mcp.Server over the configured transport(s).
 type Server struct {
 	MCP *mcp.Server // escape hatch to the underlying server
 
-	addr              string
-	transport         Transport
-	readHeaderTimeout time.Duration
-	shutdownTimeout   time.Duration
+	transport       Transport
+	shutdownTimeout time.Duration
+	httpServer      *http.Server
 }
 
 // Option configures a Server.
 type Option func(*Server)
 
-// WithAddr sets the HTTP listen address (default ":8080"). Ignored for the
-// stdio transport.
-func WithAddr(addr string) Option { return func(s *Server) { s.addr = addr } }
-
 // WithTransport sets the transport (default Stdio).
 func WithTransport(t Transport) Option {
 	return func(s *Server) { s.transport = t }
-}
-
-// WithReadHeaderTimeout sets the HTTP server's read-header timeout
-// (default 30s).
-func WithReadHeaderTimeout(d time.Duration) Option {
-	return func(s *Server) { s.readHeaderTimeout = d }
 }
 
 // WithShutdownTimeout sets the HTTP graceful-shutdown timeout (default 30s).
@@ -51,15 +36,24 @@ func WithShutdownTimeout(d time.Duration) Option {
 	return func(s *Server) { s.shutdownTimeout = d }
 }
 
-// New builds a Server wrapping mcpServer. Defaults: addr ":8080", Stdio
-// transport, both timeouts 30s.
+// WithHTTPServer sets the *http.Server for the HTTP and Both transports,
+// served as-is (Handler, Addr, timeouts, TLSConfig, … unchanged). Set its
+// Handler yourself — typically Handler(mcpServer), optionally wrapped or
+// mounted in a mux. A non-nil TLSConfig serves HTTPS and must carry its own
+// certificates. Required for HTTP and Both (else ErrNoHTTPServer); a nil
+// Handler is rejected at serve time with ErrNilHandler.
+func WithHTTPServer(srv *http.Server) Option {
+	return func(s *Server) { s.httpServer = srv }
+}
+
+// New builds a Server wrapping mcpServer. Defaults: Stdio transport, 30s
+// graceful-shutdown timeout. The HTTP and Both transports require
+// WithHTTPServer.
 func New(mcpServer *mcp.Server, opts ...Option) *Server {
 	s := &Server{
-		MCP:               mcpServer,
-		addr:              defaultAddr,
-		transport:         Stdio,
-		readHeaderTimeout: defaultReadHeaderTimeout,
-		shutdownTimeout:   defaultShutdownTimeout,
+		MCP:             mcpServer,
+		transport:       Stdio,
+		shutdownTimeout: defaultShutdownTimeout,
 	}
 	for _, o := range opts {
 		o(s)
@@ -74,10 +68,24 @@ func (s *Server) validate() error {
 	if _, err := ParseTransport(string(s.transport)); err != nil {
 		return err
 	}
-	if s.transport != Stdio {
-		if _, _, err := net.SplitHostPort(s.addr); err != nil {
-			return fmt.Errorf("%w: %q: %w", ErrInvalidAddr, s.addr, err)
-		}
+	if s.transport == Stdio {
+		return nil
+	}
+	// HTTP and Both serve a caller-owned server; it must exist and be wired.
+	hs := s.httpServer
+	if hs == nil {
+		return fmt.Errorf(
+			"%w: %s transport requires WithHTTPServer",
+			ErrNoHTTPServer, s.transport,
+		)
+	}
+	if hs.Handler == nil {
+		return fmt.Errorf(
+			"%w: WithHTTPServer server has no Handler", ErrNilHandler,
+		)
+	}
+	if _, _, err := net.SplitHostPort(hs.Addr); err != nil {
+		return fmt.Errorf("%w: %q: %w", ErrInvalidAddr, hs.Addr, err)
 	}
 	return nil
 }
@@ -85,23 +93,19 @@ func (s *Server) validate() error {
 // ListenAndServe validates config, serves on the configured transport(s),
 // blocks until ctx is cancelled, then runs graceful shutdown.
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	serve := func() error {
-		if err := s.validate(); err != nil {
-			return err
-		}
-		switch s.transport {
-		case Stdio:
-			return s.serveStdio(ctx)
-		case HTTP:
-			return s.runHTTP(ctx, s.newHTTPServer())
-		case Both:
-			return s.serveBoth(ctx)
-		default:
-			return fmt.Errorf("%w: %q", ErrInvalidTransport, s.transport)
-		}
+	if err := s.validate(); err != nil {
+		return err
 	}
-
-	return serve()
+	switch s.transport {
+	case Stdio:
+		return s.serveStdio(ctx)
+	case HTTP:
+		return s.runHTTP(ctx, s.httpServer)
+	case Both:
+		return s.serveBoth(ctx)
+	default:
+		return fmt.Errorf("%w: %q", ErrInvalidTransport, s.transport)
+	}
 }
 
 func (s *Server) serveStdio(ctx context.Context) error {
@@ -115,38 +119,41 @@ func (s *Server) serveStdio(ctx context.Context) error {
 	return fmt.Errorf("%w: %w", ErrServe, err)
 }
 
-func (s *Server) newHTTPServer() *http.Server {
-	handler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return s.MCP },
+// Handler returns the SDK streamable HTTP handler for m (stateless, JSON
+// mode) — set it as the Handler of an *http.Server for WithHTTPServer,
+// optionally wrapped with middleware or mounted in a mux.
+func Handler(m *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return m },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
 	)
-	return &http.Server{
-		Addr:              s.addr,
-		Handler:           handler,
-		ReadHeaderTimeout: s.readHeaderTimeout,
-	}
 }
 
 func (s *Server) runHTTP(ctx context.Context, hs *http.Server) error {
-	slog.InfoContext(ctx, "server running on http", "addr", hs.Addr)
-	shutdownErrCh := make(chan error, 1)
-	stop := context.AfterFunc(ctx, func() { shutdownErrCh <- s.shutdown(hs) })
-	if err := hs.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		stop()
+	scheme, serve := "http", hs.ListenAndServe
+	if hs.TLSConfig != nil {
+		scheme = "https"
+		serve = func() error { return hs.ListenAndServeTLS("", "") }
+	}
+	slog.InfoContext(ctx, "server running on "+scheme, "addr", hs.Addr)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- serve() }()
+	select {
+	case err := <-serveErr:
+		// serve() returned on its own — a real startup/runtime failure.
 		return fmt.Errorf("%w: %w", ErrServe, err)
+	case <-ctx.Done():
+		// Cancellation is the shutdown signal; serve() then returns
+		// http.ErrServerClosed into the buffered channel, unread.
+		return s.shutdown(hs)
 	}
-	if err := <-shutdownErrCh; err != nil {
-		return err
-	}
-	return nil
 }
 
 func (s *Server) serveBoth(ctx context.Context) error {
-	slog.InfoContext(ctx, "server running on stdio and http", "addr", s.addr)
+	hs := s.httpServer
 	bothCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	hs := s.newHTTPServer()
 	stdioErrCh := make(chan error, 1)
 	httpErrCh := make(chan error, 1)
 	go func() {

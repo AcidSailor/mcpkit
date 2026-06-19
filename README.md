@@ -56,6 +56,7 @@ package main
 import (
     "context"
     "log"
+    "net/http"
 
     "github.com/acidsailor/mcpkit/elicit"
     "github.com/acidsailor/mcpkit/server"
@@ -105,10 +106,15 @@ func main() {
         ),
     )
 
+    // The HTTP and Both transports serve a caller-built *http.Server as-is;
+    // set its Handler to server.Handler(mcpServer) (optionally wrapped or muxed).
     srv := server.New(
         mcpServer,
         server.WithTransport(server.HTTP),
-        server.WithAddr(":8080"),
+        server.WithHTTPServer(&http.Server{
+            Addr:    ":8080",
+            Handler: server.Handler(mcpServer),
+        }),
     )
     if err := srv.ListenAndServe(context.Background()); err != nil {
         log.Fatal(err)

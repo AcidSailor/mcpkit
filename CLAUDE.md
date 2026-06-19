@@ -66,14 +66,25 @@ after registration.
 ### `server`
 
 `server.New(mcpServer, opts...)` builds a `*Server` configured via functional
-`Option`s (`WithAddr`, `WithTransport`, `WithReadHeaderTimeout`,
-`WithShutdownTimeout`). `ListenAndServe(ctx)` validates config, dispatches on
-the `Transport` (`Stdio` / `HTTP` / `Both`), blocks until `ctx` is cancelled,
-then shuts down gracefully. HTTP uses the SDK's streamable handler in
-stateless + JSON mode. `Both` runs stdio and HTTP concurrently; either exiting
-cancels the other. `Transport` implements `UnmarshalText` (plus a
-`ParseTransport`), so env/flag/json config loaders can parse it. The exported
-`MCP` field is an escape hatch to the underlying server.
+`Option`s (`WithTransport`, `WithShutdownTimeout`, `WithHTTPServer`).
+`ListenAndServe(ctx)` validates config, dispatches on the `Transport` (`Stdio` /
+`HTTP` / `Both`), blocks until `ctx` is cancelled, then shuts down gracefully.
+`Both` runs stdio and HTTP concurrently; either exiting cancels the other.
+`Transport` implements `UnmarshalText` (plus a `ParseTransport`), so
+env/flag/json config loaders can parse it. The exported `MCP` field is an escape
+hatch to the underlying server.
+
+The package owns no HTTP defaults — the `HTTP` and `Both` transports require a
+caller-built `*http.Server` via `WithHTTPServer` (else `ErrNoHTTPServer`), which
+is served exactly as given: its `Handler`, `Addr`, timeouts, `ErrorLog`,
+`ConnState`, `TLSConfig`, … are all used unchanged. `Handler(*mcp.Server)`
+exposes the SDK streamable handler (stateless + JSON mode) so callers set the
+server's `Handler` themselves — wrapping it with middleware (auth, CORS, logging)
+or mounting it in a mux alongside other routes (health, metrics); a nil `Handler`
+returns `ErrNilHandler`, and a malformed `Addr` returns `ErrInvalidAddr`. A
+non-nil `TLSConfig` makes it serve HTTPS via `ListenAndServeTLS` (the config must
+supply its own certificates). Only `WithShutdownTimeout` (the graceful-shutdown
+deadline, not an `http.Server` field) stays the package's concern.
 
 ### `toolkit`
 
