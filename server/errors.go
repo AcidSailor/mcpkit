@@ -9,4 +9,6 @@ var (
 	ErrInvalidAddr      = errors.New("invalid server address")
 	ErrServe            = errors.New("serve")
 	ErrShutdown         = errors.New("shutdown")
+	ErrNilHandler       = errors.New("nil http handler")
+	ErrNoHTTPServer     = errors.New("no http server")
 )
