@@ -100,7 +100,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	case Stdio:
 		return s.serveStdio(ctx)
 	case HTTP:
-		return s.runHTTP(ctx, s.httpServer)
+		return s.serveHTTP(ctx, s.httpServer)
 	case Both:
 		return s.serveBoth(ctx)
 	default:
@@ -129,7 +129,7 @@ func Handler(m *mcp.Server) http.Handler {
 	)
 }
 
-func (s *Server) runHTTP(ctx context.Context, hs *http.Server) error {
+func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
 	scheme, serve := "http", hs.ListenAndServe
 	if hs.TLSConfig != nil {
 		scheme = "https"
@@ -158,14 +158,14 @@ func (s *Server) serveBoth(ctx context.Context) error {
 	httpErrCh := make(chan error, 1)
 	go func() {
 		defer cancel()
-		runTransport(stdioErrCh, "stdio", func() error {
+		runWithRecover(stdioErrCh, "stdio", func() error {
 			return s.serveStdio(bothCtx)
 		})
 	}()
 	go func() {
 		defer cancel()
-		runTransport(httpErrCh, "http", func() error {
-			return s.runHTTP(bothCtx, hs)
+		runWithRecover(httpErrCh, "http", func() error {
+			return s.serveHTTP(bothCtx, hs)
 		})
 	}()
 	stdioErr := <-stdioErrCh
@@ -179,10 +179,10 @@ func (s *Server) serveBoth(ctx context.Context) error {
 	return errors.Join(stdioErr, httpErr)
 }
 
-// runTransport runs fn and sends its result to errCh exactly once. A panic is
+// runWithRecover runs fn and sends its result to errCh exactly once. A panic is
 // recovered and surfaced as ErrServe rather than crashing the process and
 // leaving the partner transport's receiver blocked forever.
-func runTransport(errCh chan<- error, name string, fn func() error) {
+func runWithRecover(errCh chan<- error, name string, fn func() error) {
 	defer func() {
 		if r := recover(); r != nil {
 			errCh <- fmt.Errorf("%w: %s: panic: %v", ErrServe, name, r)

@@ -75,19 +75,19 @@ func TestListenAndServe_NilServer(t *testing.T) {
 	require.ErrorIs(t, err, ErrNilServer)
 }
 
-func TestRunTransport_ForwardsResult(t *testing.T) {
+func TestRunWithRecover_ForwardsResult(t *testing.T) {
 	ch := make(chan error, 1)
-	runTransport(ch, "stdio", func() error { return nil })
+	runWithRecover(ch, "stdio", func() error { return nil })
 	require.NoError(t, <-ch)
 
 	sentinel := errors.New("boom")
-	runTransport(ch, "stdio", func() error { return sentinel })
+	runWithRecover(ch, "stdio", func() error { return sentinel })
 	require.ErrorIs(t, <-ch, sentinel)
 }
 
-func TestRunTransport_RecoversPanic(t *testing.T) {
+func TestRunWithRecover_RecoversPanic(t *testing.T) {
 	ch := make(chan error, 1)
-	runTransport(ch, "http", func() error { panic("kaboom") })
+	runWithRecover(ch, "http", func() error { panic("kaboom") })
 	err := <-ch
 	require.ErrorIs(t, err, ErrServe)
 	require.Contains(t, err.Error(), "http")
