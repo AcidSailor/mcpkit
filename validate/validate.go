@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// RequireNonEmpty returns an error wrapping ErrEmpty, naming field, when value
-// is blank after trimming whitespace.
+// RequireNonEmpty wraps ErrEmpty, naming field, when value is blank (trimmed).
 func RequireNonEmpty(field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%w: %s", ErrEmpty, field)
@@ -15,9 +14,7 @@ func RequireNonEmpty(field, value string) error {
 	return nil
 }
 
-// RequireNonZero returns an error wrapping ErrZero, naming field, when value
-// equals the zero value for its type. It complements RequireNonEmpty for
-// non-string required inputs such as numeric ids.
+// RequireNonZero wraps ErrZero, naming field, when value is the zero of T.
 func RequireNonZero[T comparable](field string, value T) error {
 	var zero T
 	if value == zero {

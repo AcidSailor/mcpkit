@@ -7,10 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AddWrite registers a state-mutating MCP tool guarded by elicitation
-// (ReadOnlyHint=false, IdempotentHint=false, DestructiveHint=true). Clients
-// lacking elicitation capability get ErrNoElicitation. The prompt is set via
-// WithElicitParamsFunc; when unset the elicitation message is empty.
+// AddWrite registers a state-mutating tool guarded by elicitation.
 func AddWrite[In, Out any](t Tool[In, Out]) {
 	AddWriteFunc(
 		t,
@@ -36,12 +33,7 @@ func AddWrite[In, Out any](t Tool[In, Out]) {
 	)
 }
 
-// AddWriteFunc registers a state-mutating MCP tool (ReadOnlyHint=false,
-// IdempotentHint=false, DestructiveHint=true) with a caller-supplied handler.
-// Unlike AddWrite, the handler is NOT elicitation-gated and t.runValidated is
-// not applied: callFunc runs exactly as given, so the caller owns any
-// confirmation, validation, and result wrapping. AddWrite is the common case;
-// reach for AddWriteFunc only when you need full control of the handler.
+// AddWriteFunc registers a state-mutating tool running callFunc as-is, ungated.
 func AddWriteFunc[In, Out any](
 	t Tool[In, Out],
 	callFunc mcp.ToolHandlerFor[In, Out],

@@ -39,8 +39,7 @@ func TestAddRead_DecodeError(t *testing.T) {
 		}))
 
 	cs := newTestMCPSession(t, s)
-	// msg is an int but echoIn.Msg is a string: the decode failure must surface
-	// as a tool error (IsError), not a protocol-level Go error.
+	// msg is an int but echoIn.Msg is a string: decode fails as a tool error.
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"msg": 42},
@@ -82,8 +81,7 @@ func TestAddRead_PanicsWhenElicitSet(t *testing.T) {
 func TestAddReadFunc_CustomHandler(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	// The supplied handler runs as-is; it returns its own structured result
-	// rather than echoing the input, proving callFunc is what executes.
+	// The supplied handler runs as-is, proving callFunc is what executes.
 	AddReadFunc(
 		New(s, "echo", "echoes", objectSchema(),
 			func(_ context.Context, in echoIn) (echoOut, error) {

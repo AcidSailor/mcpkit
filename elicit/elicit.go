@@ -13,20 +13,7 @@ const (
 	cancel  = "cancel"
 )
 
-// Gate runs the MCP elicitation handshake for a write tool. It requires the
-// client to advertise the elicitation capability (else ErrNoElicitation), then
-// issues the request and maps the action to a result:
-//
-//	accept  -> nil (caller proceeds with the mutating call)
-//	decline -> ErrUserDeclined
-//	cancel  -> ErrUserCanceled
-//	other   -> ErrUnexpectedElicitAction
-//
-// A transport/protocol failure is wrapped with ErrElicitationFailed. A nil
-// params produces an empty prompt.
-//
-// Only the action gates the call; any returned field values are not
-// inspected.
+// Gate runs write-tool elicitation: accept->nil, else a sentinel error.
 func Gate(
 	ctx context.Context,
 	session *mcp.ServerSession,

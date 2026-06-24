@@ -12,8 +12,7 @@ type ParamsFunc[In any] func(
 	ctx context.Context, in In,
 ) (*mcp.ElicitParams, error)
 
-// DescribeFunc renders a confirmation message from a decoded request of type
-// In. A returned error aborts before any prompt is shown.
+// DescribeFunc renders a confirmation message from a decoded In request.
 type DescribeFunc[In any] func(ctx context.Context, in In) (string, error)
 
 func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
@@ -24,17 +23,8 @@ func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 		}
 		return &mcp.ElicitParams{
 			Message: message,
-			// No requested fields: a confirmation is a pure
-			// accept/decline/cancel decision, which Gate reads from the
-			// action. An empty object schema asks the client for no input
-			// beyond that choice.
-			//
-			// Properties must be a non-nil (empty) map: jsonschema.Schema
-			// omits the "properties" key entirely when the map is nil, but
-			// the MCP elicitation contract requires requestedSchema.properties
-			// to be present (a record). A client validating the request
-			// against that union (e.g. Claude Code) rejects a schema whose
-			// properties is undefined, breaking every write tool's confirm.
+			// Properties must be a non-nil empty map: clients reject an
+			// omitted requestedSchema.properties (e.g. Claude Code).
 			RequestedSchema: &jsonschema.Schema{
 				Type:       "object",
 				Properties: map[string]*jsonschema.Schema{},
@@ -43,9 +33,7 @@ func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 	}
 }
 
-// SimpleConfirmation returns a ParamsFunc that prompts with message and
-// requests no input fields, for write tools needing a plain yes/no
-// confirmation. Gate gates on the accept/decline/cancel action.
+// SimpleConfirmation returns a ParamsFunc that prompts with message, no fields.
 func SimpleConfirmation[In any](message string) ParamsFunc[In] {
 	return confirmation(
 		func(ctx context.Context, in In) (string, error) {
@@ -54,11 +42,7 @@ func SimpleConfirmation[In any](message string) ParamsFunc[In] {
 	)
 }
 
-// DynamicConfirmation returns a ParamsFunc that builds the prompt message from
-// the decoded input via describe, using SimpleConfirmation's requested schema.
-// Use it for write tools whose confirmation text depends on the request (e.g.
-// naming the affected resource). A describe error aborts the prompt and is
-// returned as-is.
+// DynamicConfirmation returns a ParamsFunc building the prompt via describe.
 func DynamicConfirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 	return confirmation(describe)
 }

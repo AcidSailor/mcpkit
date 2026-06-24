@@ -23,6 +23,14 @@ func newMCP() *mcp.Server {
 	return mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 }
 
+// httpHandler builds an SDK streamable handler for a non-nil Handler in tests.
+func httpHandler(m *mcp.Server) http.Handler {
+	return mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return m },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+	)
+}
+
 func TestNew_Defaults(t *testing.T) {
 	s := New(newMCP())
 	require.Equal(t, Stdio, s.transport)
@@ -50,8 +58,13 @@ func TestListenAndServe_InvalidTransport(t *testing.T) {
 
 func TestListenAndServe_HTTPBadAddr(t *testing.T) {
 	m := newMCP()
-	s := New(m, WithTransport(HTTP),
-		WithHTTPServer(&http.Server{Addr: "not-an-addr", Handler: Handler(m)}))
+	s := New(
+		m,
+		WithTransport(HTTP),
+		WithHTTPServer(
+			&http.Server{Addr: "not-an-addr", Handler: httpHandler(m)},
+		),
+	)
 	err := s.ListenAndServe(context.Background())
 	require.ErrorIs(t, err, ErrInvalidAddr)
 }
@@ -102,7 +115,7 @@ func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
 	require.NoError(t, l.Close())
 
 	m := newMCP()
-	base := &http.Server{Addr: addr, Handler: Handler(m)}
+	base := &http.Server{Addr: addr, Handler: httpHandler(m)}
 	s := New(m, WithTransport(HTTP), WithHTTPServer(base))
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -128,13 +141,9 @@ func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
 	}
 }
 
-func TestHandler_NotNil(t *testing.T) {
-	require.NotNil(t, Handler(newMCP()))
-}
-
 func TestWithHTTPServer_ServesAsIs(t *testing.T) {
 	m := newMCP()
-	base := &http.Server{Addr: "127.0.0.1:9999", Handler: Handler(m)}
+	base := &http.Server{Addr: "127.0.0.1:9999", Handler: httpHandler(m)}
 	s := New(m, WithTransport(HTTP), WithHTTPServer(base))
 	require.NoError(t, s.validate())
 	require.Same(t, base, s.httpServer) // served unchanged
@@ -177,7 +186,7 @@ func TestListenAndServe_HTTPSGracefulShutdown(t *testing.T) {
 	m := newMCP()
 	base := &http.Server{
 		Addr:      addr,
-		Handler:   Handler(m),
+		Handler:   httpHandler(m),
 		TLSConfig: selfSignedTLSConfig(t),
 	}
 	s := New(m, WithTransport(HTTP), WithHTTPServer(base))

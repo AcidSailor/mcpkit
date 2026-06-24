@@ -56,6 +56,6 @@ func TestNewSessionWithElicitationRoutesHandler(t *testing.T) {
 	)
 	require.NotNil(t, cs)
 
-	// Handler is wired, but runs only when the server elicits.
+	// Handler is wired but runs only when the server elicits.
 	require.False(t, called, "handler runs only when the server elicits")
 }

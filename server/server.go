@@ -36,19 +36,12 @@ func WithShutdownTimeout(d time.Duration) Option {
 	return func(s *Server) { s.shutdownTimeout = d }
 }
 
-// WithHTTPServer sets the *http.Server for the HTTP and Both transports,
-// served as-is (Handler, Addr, timeouts, TLSConfig, … unchanged). Set its
-// Handler yourself — typically Handler(mcpServer), optionally wrapped or
-// mounted in a mux. A non-nil TLSConfig serves HTTPS and must carry its own
-// certificates. Required for HTTP and Both (else ErrNoHTTPServer); a nil
-// Handler is rejected at serve time with ErrNilHandler.
+// WithHTTPServer sets the caller-owned *http.Server for HTTP and Both.
 func WithHTTPServer(srv *http.Server) Option {
 	return func(s *Server) { s.httpServer = srv }
 }
 
-// New builds a Server wrapping mcpServer. Defaults: Stdio transport, 30s
-// graceful-shutdown timeout. The HTTP and Both transports require
-// WithHTTPServer.
+// New builds a Server wrapping mcpServer (default: Stdio, 30s shutdown).
 func New(mcpServer *mcp.Server, opts ...Option) *Server {
 	s := &Server{
 		MCP:             mcpServer,
@@ -71,7 +64,7 @@ func (s *Server) validate() error {
 	if s.transport == Stdio {
 		return nil
 	}
-	// HTTP and Both serve a caller-owned server; it must exist and be wired.
+	// HTTP and Both need the caller-owned server to exist and be wired.
 	hs := s.httpServer
 	if hs == nil {
 		return fmt.Errorf(
@@ -90,8 +83,7 @@ func (s *Server) validate() error {
 	return nil
 }
 
-// ListenAndServe validates config, serves on the configured transport(s),
-// blocks until ctx is cancelled, then runs graceful shutdown.
+// ListenAndServe validates, serves on the transport(s), and shuts down on ctx.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err := s.validate(); err != nil {
 		return err
@@ -111,22 +103,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 func (s *Server) serveStdio(ctx context.Context) error {
 	slog.InfoContext(ctx, "server running on stdio")
 	err := s.MCP.Run(ctx, &mcp.StdioTransport{})
-	// context.Canceled is the graceful-shutdown signal (returns nil); a
-	// deadline is a real failure and surfaces as ErrServe.
+	// context.Canceled is the shutdown signal (nil); anything else is ErrServe.
 	if err == nil || errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return fmt.Errorf("%w: %w", ErrServe, err)
-}
-
-// Handler returns the SDK streamable HTTP handler for m (stateless, JSON
-// mode) — set it as the Handler of an *http.Server for WithHTTPServer,
-// optionally wrapped with middleware or mounted in a mux.
-func Handler(m *mcp.Server) http.Handler {
-	return mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return m },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
-	)
 }
 
 func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
@@ -140,11 +121,10 @@ func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
 	go func() { serveErr <- serve() }()
 	select {
 	case err := <-serveErr:
-		// serve() returned on its own — a real startup/runtime failure.
+		// serve() returned on its own — a startup/runtime failure.
 		return fmt.Errorf("%w: %w", ErrServe, err)
 	case <-ctx.Done():
-		// Cancellation is the shutdown signal; serve() then returns
-		// http.ErrServerClosed into the buffered channel, unread.
+		// Shutdown signal; serve()'s http.ErrServerClosed lands unread.
 		return s.shutdown(hs)
 	}
 }
@@ -179,9 +159,7 @@ func (s *Server) serveBoth(ctx context.Context) error {
 	return errors.Join(stdioErr, httpErr)
 }
 
-// runWithRecover runs fn and sends its result to errCh exactly once. A panic is
-// recovered and surfaced as ErrServe rather than crashing the process and
-// leaving the partner transport's receiver blocked forever.
+// runWithRecover sends fn's result to errCh once; a panic becomes ErrServe.
 func runWithRecover(errCh chan<- error, name string, fn func() error) {
 	defer func() {
 		if r := recover(); r != nil {

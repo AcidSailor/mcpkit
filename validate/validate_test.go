@@ -8,7 +8,7 @@ import (
 )
 
 func TestRequireNonEmpty(t *testing.T) {
-	// (field, value): errors when value is blank, naming the field.
+	// Errors when value is blank, naming the field.
 	require.NoError(t, validate.RequireNonEmpty("id", "x"))
 
 	err := validate.RequireNonEmpty("id", "")
@@ -25,7 +25,7 @@ func TestRequireNonEmpty(t *testing.T) {
 }
 
 func TestRequireNonZero(t *testing.T) {
-	// (field, value): errors when value is the zero value, naming the field.
+	// Errors when value is the zero value, naming the field.
 	require.NoError(t, validate.RequireNonZero("order_id", int64(42)))
 
 	err := validate.RequireNonZero("order_id", int64(0))
