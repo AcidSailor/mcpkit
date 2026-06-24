@@ -1,5 +1,4 @@
-// Package mcptest provides helpers to drive a registered MCP server over the
-// SDK's in-memory transport, for end-to-end tool tests.
+// Package mcptest drives a server over the SDK's in-memory transport for tests.
 package mcptest
 
 import (
@@ -9,18 +8,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// NewSession connects an in-memory client to s and returns the client session.
-// The server connects on a background goroutine; the session is closed via
-// tb.Cleanup. The client advertises no elicitation capability, so
-// elicitation-gated write tools fail — use NewSessionWithElicitation for those.
+// NewSession connects an in-memory client to s, advertising no elicitation.
 func NewSession(tb testing.TB, s *mcp.Server) *mcp.ClientSession {
 	tb.Helper()
 	return connect(tb, s, nil)
 }
 
-// NewSessionWithElicitation is like NewSession but wires handler as the
-// client's elicitation handler, advertising the capability so write tools
-// registered via toolkit.AddWrite can complete.
+// NewSessionWithElicitation is like NewSession but wires an elicit handler.
 func NewSessionWithElicitation(
 	tb testing.TB,
 	s *mcp.Server,

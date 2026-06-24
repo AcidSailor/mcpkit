@@ -1,5 +1,3 @@
-// Package toolkit provides a generic fluent builder for registering JSON MCP
-// tools on a server.
 package toolkit
 
 import (
@@ -11,8 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Re-exported so callers can match elicitation sentinels without importing
-// elicit.
+// Re-exported so callers can match elicit sentinels without importing elicit.
 var (
 	ErrUserDeclined           = elicit.ErrUserDeclined
 	ErrUserCanceled           = elicit.ErrUserCanceled
@@ -30,9 +27,7 @@ type (
 	ElicitParamsFunc[In any] = elicit.ParamsFunc[In]
 )
 
-// Tool is a fluent registration builder. New infers In/Out from call, so the
-// type name is rarely written at call sites. Distinct from the SDK's mcp.Tool,
-// which it produces internally.
+// Tool is a fluent registration builder, distinct from the SDK's mcp.Tool.
 type Tool[In, Out any] struct {
 	server           *mcp.Server
 	name             string
@@ -44,9 +39,7 @@ type Tool[In, Out any] struct {
 	elicitParamsFunc ElicitParamsFunc[In]
 }
 
-// New starts a tool registration, inferring In/Out from call. The input schema
-// is required (the SDK panics on nil); the output schema is optional, set via
-// WithOutputSchema.
+// New starts a tool registration, inferring In/Out from call.
 func New[In, Out any](
 	server *mcp.Server,
 	name, description string,
@@ -62,8 +55,7 @@ func New[In, Out any](
 	}
 }
 
-// WithOutputSchema sets the optional output schema. When set, the SDK validates
-// the structured result against it; when unset, the tool declares none.
+// WithOutputSchema sets the optional output schema the SDK validates against.
 func (t Tool[In, Out]) WithOutputSchema(
 	schema *jsonschema.Schema,
 ) Tool[In, Out] {
@@ -71,15 +63,13 @@ func (t Tool[In, Out]) WithOutputSchema(
 	return t
 }
 
-// WithValidateFunc sets an optional validator run on decoded input before the
-// call (and, for writes, before elicitation).
+// WithValidateFunc sets a validator run on decoded input before the call.
 func (t Tool[In, Out]) WithValidateFunc(f ValidateFunc[In]) Tool[In, Out] {
 	t.validateFunc = f
 	return t
 }
 
-// WithElicitParamsFunc sets the function that builds a write tool's elicitation
-// prompt. Optional for AddWrite; AddRead panics if it is set.
+// WithElicitParamsFunc sets the write tool's elicitation prompt builder.
 func (t Tool[In, Out]) WithElicitParamsFunc(
 	f ElicitParamsFunc[In],
 ) Tool[In, Out] {
@@ -87,10 +77,7 @@ func (t Tool[In, Out]) WithElicitParamsFunc(
 	return t
 }
 
-// mcpTool builds the SDK tool descriptor with the given annotations. The SDK's
-// schema fields are typed `any`: assigning a nil *jsonschema.Schema would wrap
-// a typed-nil into a non-nil interface, which the SDK then rejects as a zero
-// schema lacking type "object". So OutputSchema is set only when present.
+// mcpTool builds the SDK tool descriptor; OutputSchema set only when present.
 func (t Tool[In, Out]) mcpTool(
 	annotations *mcp.ToolAnnotations,
 ) *mcp.Tool {
@@ -106,10 +93,7 @@ func (t Tool[In, Out]) mcpTool(
 	return tool
 }
 
-// runValidated is the shared handler pipeline for AddRead/AddWrite: validator
-// (if any), then an optional gate (writes pass the elicitation gate, reads pass
-// nil), then the call, wrapping any failure with the tool name while preserving
-// the underlying sentinel. One place keeps the read/write paths aligned.
+// runValidated runs validator, optional gate, then call; wraps errs with name.
 func (t Tool[In, Out]) runValidated(
 	ctx context.Context,
 	in In,

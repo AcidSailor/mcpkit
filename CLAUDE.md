@@ -74,14 +74,26 @@ after registration.
 env/flag/json config loaders can parse it. The exported `MCP` field is an escape
 hatch to the underlying server.
 
-The package owns no HTTP defaults — the `HTTP` and `Both` transports require a
-caller-built `*http.Server` via `WithHTTPServer` (else `ErrNoHTTPServer`), which
-is served exactly as given: its `Handler`, `Addr`, timeouts, `ErrorLog`,
-`ConnState`, `TLSConfig`, … are all used unchanged. `Handler(*mcp.Server)`
-exposes the SDK streamable handler (stateless + JSON mode) so callers set the
-server's `Handler` themselves — wrapping it with middleware (auth, CORS, logging)
-or mounting it in a mux alongside other routes (health, metrics); a nil `Handler`
-returns `ErrNilHandler`, and a malformed `Addr` returns `ErrInvalidAddr`. A
+The package owns no HTTP defaults and provides no handler helper — the `HTTP`
+and `Both` transports require a caller-built `*http.Server` via `WithHTTPServer`
+(else `ErrNoHTTPServer`), served exactly as given: its `Handler`, `Addr`,
+timeouts, `ErrorLog`, `ConnState`, `TLSConfig`, … all used unchanged. Callers
+build the `Handler` themselves with `mcp.NewStreamableHTTPHandler` — wrapping it
+with middleware (auth, CORS, logging) or mounting it in a mux alongside other
+routes (health, metrics); a nil `Handler` returns `ErrNilHandler`, and a
+malformed `Addr` returns `ErrInvalidAddr`.
+
+The handler's `StreamableHTTPOptions` are the caller's choice, and elicitation
+constrains them: a stateless handler **cannot serve elicitation-gated write
+tools** (it uses a temporary session with default init params and rejects
+server→client requests, so `elicit.Gate` fails with `ErrNoElicitation` at call
+time). Servers that register write tools (`toolkit.AddWrite` / `registry.Write`)
+must build a **stateful** handler — `StreamableHTTPOptions{Stateless: false,
+JSONResponse: false}` — which keeps the initialized session (`Mcp-Session-Id`)
+and serves the GET SSE stream so server→client elicitation can be delivered (an
+optional `EventStore` aids stream resumption). Read-only servers can use
+`{Stateless: true, JSONResponse: true}`, the only mode that scales horizontally
+without session affinity. A
 non-nil `TLSConfig` makes it serve HTTPS via `ListenAndServeTLS` (the config must
 supply its own certificates). Only `WithShutdownTimeout` (the graceful-shutdown
 deadline, not an `http.Server` field) stays the package's concern.
@@ -102,6 +114,12 @@ nil). Chain optional config, then register:
   by MCP elicitation**: the client must support elicitation (else
   `ErrNoElicitation`); the call runs only on an `accept` action
   (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`).
+
+`AddReadFunc(tool, callFunc)` / `AddWriteFunc(tool, callFunc)` are the
+lower-level variants that register a custom `mcp.ToolHandlerFor[In, Out]` as-is
+(keeping the Read/Write annotations): `AddReadFunc` skips input validation,
+`AddWriteFunc` runs ungated (no elicitation). `AddRead`/`AddWrite` are built on
+them.
 
 `toolkit` re-exports the `elicit` sentinels (`ErrUserDeclined`,
 `ErrUserCanceled`, `ErrNoElicitation`, `ErrUnexpectedElicitAction`,

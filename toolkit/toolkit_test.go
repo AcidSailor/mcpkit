@@ -42,8 +42,7 @@ func TestBuilderStoresFields(t *testing.T) {
 	require.NotNil(t, tl.elicitParamsFunc)
 }
 
-// A validator's sentinel must stay matchable through the pipeline: the boundary
-// wraps with the tool name but preserves the inner error chain for errors.Is.
+// A validator's sentinel must stay matchable through the pipeline (errors.Is).
 func TestRunValidatedPreservesValidateSentinel(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
@@ -63,9 +62,7 @@ func TestMCPToolOutputSchema(t *testing.T) {
 			return echoOut{Echo: in.Msg}, nil
 		})
 
-	// Without WithOutputSchema, OutputSchema must be an untyped nil interface,
-	// not a typed-nil *jsonschema.Schema in a non-nil any (which the SDK
-	// rejects). require.Nil accepts a typed-nil, so compare against nil directly.
+	// Without WithOutputSchema, OutputSchema must be an untyped nil interface.
 	tool := tl.mcpTool(&mcp.ToolAnnotations{})
 	require.True(
 		t,

@@ -6,9 +6,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// InputSchema reflects a JSON Schema from the Go input type In, for tools whose
-// input is a plain struct with json tags. Panics on reflection failure, like
-// mcp.AddTool: an unbuildable schema is a registration-time programming error.
+// InputSchema reflects a JSON Schema from In; panics on reflection failure.
 func InputSchema[In any]() *jsonschema.Schema {
 	s, err := jsonschema.For[In](nil)
 	if err != nil {

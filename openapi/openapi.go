@@ -1,27 +1,3 @@
-// Package openapi assembles per-tool JSON Schemas for MCP tools from a
-// dereferenced OpenAPI document.
-//
-// The input is the JSON of an OpenAPI 3.1 document whose Schema Objects are
-// already JSON Schema 2020-12 (except OpenAPI 3.0's `nullable: true`, which
-// Parse normalizes to a null-permitting type) and is fully dereferenced: every
-// "#/components/schemas/X" reference inlined while components.schemas is
-// retained for name->schema lookups. With no "$ref" in the document, every
-// assembled schema is self-contained — no "$defs" attachment and nothing for
-// the MCP SDK's JSON Schema resolver to chase.
-//
-// Parse unmarshals the document once into typed jsonschema.Schema values; the
-// Schemas methods then compose self-contained schemas. They expose an
-// operation's parameters (ParamsSchema/ParamSchema, optionally a named subset),
-// its application/json request body (BodySchema), a named component (Ref), a
-// response wrapper (OutputObject/OutputItems/OutputValue), and its summary
-// (Summary). Returned component and parameter schemas are deep-cloned (via
-// jsonschema's CloneSchemas), so they never alias the parsed document and
-// callers — and the MCP SDK — may mutate them freely.
-//
-// Methods panic on a name/path/operation/parameter the document does not
-// define: static, programmer-level errors that surface immediately in tests.
-// The panic value wraps ErrUndefined. Only Parse, whose input is runtime bytes,
-// returns an error.
 package openapi
 
 import (
@@ -66,18 +42,13 @@ type Schemas struct {
 	defs  map[string]*jsonschema.Schema
 }
 
-// Parse decodes a dereferenced OpenAPI document into a Schemas. It returns an
-// error wrapping ErrParse when doc is not valid JSON.
+// Parse decodes a dereferenced OpenAPI doc; wraps ErrParse on invalid JSON.
 func Parse(doc []byte) (*Schemas, error) {
 	var d document
 	if err := json.Unmarshal(doc, &d); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParse, err)
 	}
-	// OpenAPI 3.0's `nullable: true` keyword is undefined in JSON
-	// Schema 2020-12 — jsonschema parses it into Extra but ignores it when
-	// validating, so a JSON null would be rejected for a spec-nullable value.
-	// Rewrite each nullable schema to a null-permitting type up front, so every
-	// assembled schema (and its clones) inherits the fix.
+	// Rewrite OpenAPI 3.0 `nullable: true` to a null-permitting type up front.
 	for _, s := range d.Components.Schemas {
 		applyNullable(s)
 	}
@@ -96,10 +67,7 @@ func Parse(doc []byte) (*Schemas, error) {
 	return &Schemas{paths: d.Paths, defs: d.Components.Schemas}, nil
 }
 
-// applyNullable translates OpenAPI 3.0's `nullable: true` into a JSON Schema
-// 2020-12 null-permitting type, dropping the now-redundant keyword. It recurses
-// through every subschema position, so a nullable field nested under
-// properties, items, composition, etc. is covered.
+// applyNullable rewrites `nullable: true` to a null-permitting type, recursing.
 func applyNullable(s *jsonschema.Schema) {
 	if s == nil {
 		return
@@ -149,9 +117,7 @@ func applyNullable(s *jsonschema.Schema) {
 	}
 }
 
-// addNullType makes a schema admit JSON null. A single Type moves into the
-// Types pair (jsonschema forbids setting both); an existing Types list gains
-// "null" once. A typeless schema already permits null and is left alone.
+// addNullType makes a schema admit JSON null; a typeless schema is left alone.
 func addNullType(s *jsonschema.Schema) {
 	if len(s.Types) > 0 {
 		if !slices.Contains(s.Types, "null") {
@@ -166,9 +132,7 @@ func addNullType(s *jsonschema.Schema) {
 	s.Type = ""
 }
 
-// Ref returns a deep clone of the inlined component schema named by name,
-// independent of the parsed document. (The document is pre-dereferenced, so
-// there is no "$ref" to emit.) It panics if name is not a known component.
+// Ref returns a deep clone of the component named by name; panics if unknown.
 func (s *Schemas) Ref(name string) *jsonschema.Schema {
 	comp, ok := s.defs[name]
 	if !ok {
@@ -183,8 +147,7 @@ func (s *Schemas) Ref(name string) *jsonschema.Schema {
 	return comp.CloneSchemas()
 }
 
-// Object assembles a self-contained object schema from properties and required
-// field names. An empty required slice is omitted from the schema.
+// Object assembles an object schema from properties and required field names.
 func Object(
 	properties map[string]*jsonschema.Schema,
 	required []string,
@@ -196,12 +159,8 @@ func Object(
 	}
 }
 
-// ParamsSchema builds an object input schema from an operation's path + query
-// parameters (used by GET tools). With no names it includes every parameter;
-// with names, only that subset in the order given — letting a tool expose a
-// curated slice of an operation's parameters. A parameter is required exactly
-// when the spec marks it so. It panics if the operation is unknown or a
-// requested name is not one of its parameters.
+// ParamsSchema builds an input schema from an op's params (all, or a named
+// subset); panics if the op is unknown or a requested name is not a param.
 func (s *Schemas) ParamsSchema(
 	method, path string,
 	names ...string,
@@ -246,16 +205,13 @@ func (s *Schemas) ParamsSchema(
 	return Object(properties, required)
 }
 
-// Summary returns an operation's one-line summary, suitable as a tool
-// description. It panics if the operation is unknown.
+// Summary returns an operation's one-line summary; panics if the op is unknown.
 func (s *Schemas) Summary(method, path string) string {
 	return s.mustOp(method, path).Summary
 }
 
-// BodySchema returns a deep clone of an operation's application/json
-// request-body schema (used by POST/PUT tools), self-contained and embeddable
-// freely. It panics if the operation is unknown or has no application/json
-// request body.
+// BodySchema clones an op's application/json request-body schema; panics if the
+// op is unknown or has no application/json request body.
 func (s *Schemas) BodySchema(method, path string) *jsonschema.Schema {
 	op := s.mustOp(method, path)
 	if op.RequestBody != nil {
@@ -274,8 +230,7 @@ func (s *Schemas) BodySchema(method, path string) *jsonschema.Schema {
 	)
 }
 
-// ParamSchema returns a single parameter's self-contained schema, for embedding
-// inside an Object. It panics if the parameter is not found.
+// ParamSchema returns a single parameter's schema; panics if not found.
 func (s *Schemas) ParamSchema(method, path, name string) *jsonschema.Schema {
 	op := s.mustOp(method, path)
 	for _, p := range op.Parameters {
@@ -294,9 +249,7 @@ func (s *Schemas) ParamSchema(method, path, name string) *jsonschema.Schema {
 	)
 }
 
-// paramSchema returns an independent clone of a parameter's schema, embeddable
-// without aliasing the parsed document. It panics if the parameter carries no
-// schema.
+// paramSchema clones a parameter's schema; panics if it carries no schema.
 func paramSchema(p parameter) *jsonschema.Schema {
 	if p.Schema == nil {
 		panic(
@@ -310,10 +263,8 @@ func paramSchema(p parameter) *jsonschema.Schema {
 	return p.Schema.CloneSchemas()
 }
 
-// OutputObject builds an output schema for a single-object response whose body
-// is the named component, returned inlined (a deep clone via Ref) so the schema
-// carries the top-level "type":"object" the MCP SDK requires. It panics if name
-// is unknown or the component is not an object.
+// OutputObject builds an object-response output schema from the named component;
+// panics if name is unknown or the component is not an object.
 func (s *Schemas) OutputObject(name string) *jsonschema.Schema {
 	comp := s.Ref(name)
 	if comp.Type != "object" {
@@ -329,8 +280,7 @@ func (s *Schemas) OutputObject(name string) *jsonschema.Schema {
 	return comp
 }
 
-// OutputItems builds an output schema for a slice response, wrapped under an
-// "items" array (the MCP structuredContent contract requires an object root).
+// OutputItems builds a slice-response output schema, wrapped under "items".
 func (s *Schemas) OutputItems(name string) *jsonschema.Schema {
 	return Object(
 		map[string]*jsonschema.Schema{
@@ -340,8 +290,7 @@ func (s *Schemas) OutputItems(name string) *jsonschema.Schema {
 	)
 }
 
-// OutputValue builds an output schema for a scalar response, wrapped under a
-// "value" property of the given JSON Schema type (e.g. "number").
+// OutputValue builds a scalar-response output schema, wrapped under "value".
 func OutputValue(jsonType string) *jsonschema.Schema {
 	return Object(
 		map[string]*jsonschema.Schema{

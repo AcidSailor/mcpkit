@@ -113,9 +113,7 @@ func errorText(t *testing.T, res *mcp.CallToolResult) string {
 func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	// AddWriteFunc does not wrap the handler in elicit.Gate, so the write runs
-	// even under a session with no elicitation capability — the caller owns any
-	// confirmation. WithElicitParamsFunc is set to prove it is ignored here.
+	// AddWriteFunc skips elicit.Gate, so the write runs without elicitation.
 	AddWriteFunc(
 		New(s, "do", "does", objectSchema(),
 			func(_ context.Context, in echoIn) (echoOut, error) {

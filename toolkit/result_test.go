@@ -22,7 +22,7 @@ func TestWrapItemsNilNormalizedToEmptyArray(t *testing.T) {
 	require.NoError(t, err)
 	b, err := json.Marshal(got)
 	require.NoError(t, err)
-	// A nil slice must serialize to [] (not null) for array-typed schemas.
+	// A nil slice must serialize to [] (not null) for array schemas.
 	assert.JSONEq(t, `{"items":[]}`, string(b))
 }
 

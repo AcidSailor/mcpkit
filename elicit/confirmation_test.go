@@ -16,8 +16,7 @@ type confirmInput struct {
 }
 
 func TestDynamicConfirmationBuildsMessageFromInput(t *testing.T) {
-	// describe turns input into the prompt message; the schema requests no
-	// input fields, matching SimpleConfirmation.
+	// describe turns input into the prompt message; no requested fields.
 	pf := elicit.DynamicConfirmation(
 		func(_ context.Context, in confirmInput) (string, error) {
 			return "delete " + in.Name + "?", nil
@@ -32,10 +31,7 @@ func TestDynamicConfirmationBuildsMessageFromInput(t *testing.T) {
 	require.Equal(t, "object", schema.Type)
 	require.Empty(t, schema.Properties, "confirmation requests no input fields")
 
-	// The map must be non-nil so the marshalled schema carries an explicit
-	// "properties":{}. A nil map omits the key entirely, which clients that
-	// validate elicitation requests (e.g. Claude Code) reject as a malformed
-	// requestedSchema — the bug this guards against.
+	// Non-nil map serialises "properties":{}; a nil map omits it.
 	require.NotNil(t, schema.Properties,
 		"properties must be a non-nil empty map, not omitted")
 	raw, err := json.Marshal(schema)

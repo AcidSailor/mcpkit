@@ -10,10 +10,7 @@ import (
 	"github.com/acidsailor/mcpkit/openapi"
 )
 
-// fixture is a minimal dereferenced OpenAPI 3.1 document: a GET with two
-// optional query parameters (for subset selection), a GET with a required path
-// parameter, a POST with a summary and inline application/json request body, and
-// a component nesting another object (for deep cloning / inlining).
+// fixture is a minimal dereferenced OpenAPI 3.1 document covering the methods.
 const fixture = `{
   "paths": {
     "/things": {
@@ -209,9 +206,7 @@ func TestOutputValue(t *testing.T) {
 	assert.Equal(t, []string{"value"}, s.Required)
 }
 
-// nullableFixture is a dereferenced OpenAPI 3.0 document exercising
-// "nullable": true at several nesting depths: a top-level object property, a
-// nested object's property, and an array item.
+// nullableFixture exercises "nullable": true at several nesting depths.
 const nullableFixture = `{
   "paths": {},
   "components": {
@@ -231,8 +226,7 @@ const nullableFixture = `{
   }
 }`
 
-// TestNullable_TypeRewritten checks that "nullable": true becomes a JSON Schema
-// 2020-12 null-permitting type at every depth, with the keyword dropped.
+// TestNullable_TypeRewritten checks "nullable" becomes a null type at depth.
 func TestNullable_TypeRewritten(t *testing.T) {
 	s, err := openapi.Parse([]byte(nullableFixture))
 	require.NoError(t, err)
@@ -258,9 +252,7 @@ func TestNullable_TypeRewritten(t *testing.T) {
 	assert.ElementsMatch(t, []string{"string", "null"}, item.Types)
 }
 
-// TestNullable_ValidatesNull proves the rewritten schema accepts a JSON null
-// where the spec marked the field nullable — the point of the translation,
-// since the resolver ignores the bare "nullable" keyword.
+// TestNullable_ValidatesNull proves the rewritten schema accepts a JSON null.
 func TestNullable_ValidatesNull(t *testing.T) {
 	s, err := openapi.Parse([]byte(nullableFixture))
 	require.NoError(t, err)

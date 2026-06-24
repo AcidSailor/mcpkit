@@ -106,14 +106,20 @@ func main() {
         ),
     )
 
-    // The HTTP and Both transports serve a caller-built *http.Server as-is;
-    // set its Handler to server.Handler(mcpServer) (optionally wrapped or muxed).
+    // The HTTP and Both transports serve a caller-built *http.Server as-is.
+    // Build the Handler with mcp.NewStreamableHTTPHandler (optionally wrapped or
+    // muxed). This server has a write tool, so the handler must be stateful — a
+    // stateless one can't deliver the server->client elicitation request.
+    handler := mcp.NewStreamableHTTPHandler(
+        func(*http.Request) *mcp.Server { return mcpServer },
+        &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: false},
+    )
     srv := server.New(
         mcpServer,
         server.WithTransport(server.HTTP),
         server.WithHTTPServer(&http.Server{
             Addr:    ":8080",
-            Handler: server.Handler(mcpServer),
+            Handler: handler,
         }),
     )
     if err := srv.ListenAndServe(context.Background()); err != nil {

@@ -8,20 +8,16 @@ import (
 )
 
 // options holds the optional toolkit config captured by Read/Write.
-// Parameterised by In only; Out flows through the captured call func.
 type options[In any] struct {
 	output   *jsonschema.Schema
 	validate toolkit.ValidateFunc[In]
 	elicit   toolkit.ElicitParamsFunc[In]
 }
 
-// Option configures a Read/Write registration. In is inferred from the option
-// argument (and pinned by the call func), so it is rarely written explicitly.
+// Option configures a Read/Write registration; In is usually inferred.
 type Option[In any] func(*options[In])
 
-// WithOutputSchema sets the tool's optional output schema. When it's the only
-// option, In can't be inferred from the schema; pass it explicitly
-// (WithOutputSchema[YourIn](schema)).
+// WithOutputSchema sets the tool's optional output schema (pin In if alone).
 func WithOutputSchema[In any](s *jsonschema.Schema) Option[In] {
 	return func(o *options[In]) { o.output = s }
 }
@@ -31,8 +27,7 @@ func WithValidateFunc[In any](f toolkit.ValidateFunc[In]) Option[In] {
 	return func(o *options[In]) { o.validate = f }
 }
 
-// WithElicitFunc sets a write tool's elicitation-prompt builder. Passing it to
-// a Read registration panics at Bind time (enforced by toolkit.AddRead).
+// WithElicitFunc sets a write tool's elicit-prompt builder; on Read panics.
 func WithElicitFunc[In any](f toolkit.ElicitParamsFunc[In]) Option[In] {
 	return func(o *options[In]) { o.elicit = f }
 }
@@ -53,8 +48,7 @@ func Read[In, Out any](
 	}
 }
 
-// Write describes a state-mutating tool gated by elicitation. In/Out are
-// inferred from call.
+// Write describes a state-mutating tool gated by elicitation; In/Out inferred.
 func Write[In, Out any](
 	name, description string,
 	in *jsonschema.Schema,
@@ -70,8 +64,7 @@ func Write[In, Out any](
 	}
 }
 
-// build applies opts onto a fresh toolkit.Tool, replaying the fluent chain
-// callers would otherwise write by hand.
+// build applies opts onto a fresh toolkit.Tool via the fluent chain.
 func build[In, Out any](
 	s *mcp.Server,
 	name, description string,

@@ -1,5 +1,3 @@
-// Package server provides MCP transport serving (stdio/http/both) and the
-// Transport type shared across acidsailor MCP servers.
 package server
 
 import "fmt"
@@ -14,8 +12,7 @@ const (
 	Both  Transport = "both"  // stdio + HTTP concurrently
 )
 
-// ParseTransport parses s into a Transport, wrapping ErrInvalidTransport for
-// an unsupported value.
+// ParseTransport parses s, wrapping ErrInvalidTransport for a bad value.
 func ParseTransport(s string) (Transport, error) {
 	switch t := Transport(s); t {
 	case Stdio, HTTP, Both:
@@ -25,8 +22,7 @@ func ParseTransport(s string) (Transport, error) {
 	}
 }
 
-// UnmarshalText lets text-based config loaders (env, flag, json) parse a
-// Transport.
+// UnmarshalText lets text config loaders (env, flag, json) parse a Transport.
 func (t *Transport) UnmarshalText(b []byte) error {
 	parsed, err := ParseTransport(string(b))
 	if err != nil {

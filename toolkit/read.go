@@ -7,9 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AddRead registers a read-only MCP tool (ReadOnlyHint=true,
-// IdempotentHint=true, DestructiveHint=false). Panics if an elicitation prompt
-// was set via WithElicitParamsFunc, which is meaningless for a read tool.
+// AddRead registers a read-only tool; panics if an elicit prompt was set.
 func AddRead[In, Out any](t Tool[In, Out]) {
 	AddReadFunc(
 		t,
@@ -24,13 +22,7 @@ func AddRead[In, Out any](t Tool[In, Out]) {
 	)
 }
 
-// AddReadFunc registers a read-only MCP tool (ReadOnlyHint=true,
-// IdempotentHint=true, DestructiveHint=false) with a caller-supplied handler.
-// Unlike AddRead, t.runValidated is not applied: callFunc runs exactly as
-// given, so the caller owns any validation and result wrapping. Panics if an
-// elicitation prompt was set via WithElicitParamsFunc, which is meaningless for
-// a read tool. AddRead is the common case; reach for AddReadFunc only when you
-// need full control of the handler.
+// AddReadFunc registers a read-only tool running callFunc as-is, unvalidated.
 func AddReadFunc[In, Out any](
 	t Tool[In, Out],
 	callFunc mcp.ToolHandlerFor[In, Out],
