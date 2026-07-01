@@ -14,8 +14,11 @@ documents, and driving in-memory tests. Library only (no command, no `main`).
   concurrently, with graceful shutdown and a parseable `Transport` type.
 - **`toolkit`** — a generic, fluent builder for registering read and write
   tools; write tools are auto-gated behind MCP elicitation.
-- **`registry`** — describe tools independently of a server and bind them in one
-  pass, with write tools gated by a single `Enable.Write` flag.
+- **`resource`** — a fluent builder for static and URI-template (dynamic)
+  resources, with typed handlers, content envelopes, and extracted template
+  variables.
+- **`registry`** — describe tools and resources independently of a server and
+  bind them in one pass, with write tools gated by a single `Enable.Write` flag.
 - **`elicit`** — the elicitation gate plus static and dynamic confirmation
   prompt builders.
 - **`openapi`** — assemble per-tool input/output JSON Schemas from a
@@ -126,6 +129,79 @@ func main() {
         log.Fatal(err)
     }
 }
+```
+
+### Resources
+
+Register resources with the `resource` builder. A **static** resource has a
+fixed URI; its typed read func returns a `Content` envelope (`NewText`,
+`NewBlob`, `NewJSON`, or a `Raw` escape hatch) — the package stamps the URI and
+a fallback MIME for you.
+
+```go
+import "github.com/acidsailor/mcpkit/resource"
+
+// Static: fixed URI, JSON body (MIME is always application/json for JSON).
+resource.New(
+    mcpServer,
+    "config://app",
+    "app-config",
+    "The application configuration",
+    func(ctx context.Context) (resource.Content, error) {
+        return resource.NewJSON(loadConfig(ctx)), nil
+    },
+).WithTitle("App Config").Add()
+```
+
+A **URI-template** (dynamic) resource matches many URIs. Its read func also
+receives the concrete URI and a `Vars` of the RFC 6570 variables extracted from
+it. Return `resource.ErrNotFound` to surface a not-found on the wire.
+
+```go
+// Dynamic: users://{id} — one template, many concrete URIs.
+resource.NewTemplate(
+    mcpServer,
+    "users://{id}",
+    "user",
+    "A user by id",
+    func(ctx context.Context, uri string, vars resource.Vars) (resource.Content, error) {
+        id, err := vars.Int("id")
+        if err != nil {
+            return nil, err // wraps resource.ErrInvalidVars
+        }
+        u, ok := lookupUser(id)
+        if !ok {
+            return nil, resource.ErrNotFound
+        }
+        return resource.NewJSON(u), nil
+    },
+).WithMIMEType("application/json").Add()
+```
+
+`Add` panics on a malformed URI, and `NewTemplate` on an invalid RFC 6570
+template — static, programmer-level errors, like `toolkit.InputSchema`.
+
+The URI is an **identifier**, not a fetch target: the client passes it back in a
+`resources/read` call and your read func turns it into bytes — the client never
+dereferences it. The scheme is freeform (RFC 3986; MCP allows custom schemes),
+so `config://`, `users://`, and the like are illustrative, not required. Reuse a
+standard scheme when it *is* the thing (`file://`, `https://`); use a custom one
+named after the entity for app-domain concepts. For a remote HTTP resource you
+may put the real URL as the URI, but the `https://` scheme won't make the client
+fetch it — your handler still does. Keep one convention per server, and make
+templates match the static shape (`users://42` ↔ `users://{id}`), since the URI
+is a stable identity clients may cache.
+
+Drive resource reads and listing in tests with the `mcptest` helpers:
+
+```go
+session := mcptest.NewSession(t, mcpServer)
+
+cfg := mcptest.ReadResourceJSON[Config](t, session, "config://app")
+user := mcptest.ReadResourceJSON[User](t, session, "users://42")
+
+uris := mcptest.ListResourceURIs(t, session)                 // static URIs
+tmpls := mcptest.ListResourceTemplateURIs(t, session)        // URI templates
 ```
 
 ### Result envelopes

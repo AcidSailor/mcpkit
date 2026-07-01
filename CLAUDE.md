@@ -43,7 +43,8 @@ Subpackages layered on the SDK:
 
 - **`server/`** — wraps an `*mcp.Server` and serves it over a transport.
 - **`toolkit/`** — generic fluent builder for registering tools on an `*mcp.Server`.
-- **`registry/`** — server-independent tool descriptors bound to a server in one pass.
+- **`resource/`** — fluent builder for static and URI-template resources on an `*mcp.Server`.
+- **`registry/`** — server-independent tool/resource descriptors bound to a server in one pass.
 - **`elicit/`** — the write-tool elicitation gate and confirmation prompt helpers.
 - **`openapi/`** — assembles per-tool JSON Schemas from a dereferenced OpenAPI document.
 - **`validate/`** — small generic input validators.
@@ -138,16 +139,53 @@ slice or scalar would violate MCP's object-root `structuredContent` contract.
 `Items.MarshalJSON` normalizes a nil slice to `[]` so an array-typed output
 schema still accepts it.
 
+### `resource`
+
+A value-type fluent builder mirroring `toolkit`, for MCP **resources**.
+`New(server, uri, name, description, read)` registers a **static** resource;
+`read` is a typed `func(ctx) (Content, error)` — no raw SDK request/result.
+`NewTemplate(server, uriTemplate, name, description, read)` registers a
+**dynamic** (URI-template) resource whose `read` also receives the concrete URI
+and a `Vars` of the extracted RFC 6570 variables (the SDK extracts none —
+`template.go` parses the template once and `Match`es per read). Chain
+`WithMIMEType` / `WithTitle` / `WithDescription` / `WithAnnotations` (and
+`WithSize`, static only), then `Add()`. `Add` **panics** on a malformed URI
+(one that fails `url.Parse`) and `NewTemplate` on an invalid RFC 6570 template,
+surfacing the SDK panic like `toolkit.InputSchema`.
+
+`content.go` provides `Content` envelopes so handlers don't build
+`[]*mcp.ResourceContents` by hand: `Text` (default `text/plain`), `Blob`
+(`application/octet-stream`), `JSON[T]` (always `application/json`, ignoring the
+declared MIME), and `Raw` (verbatim escape hatch — caller owns each block, must
+be non-empty), with `NewText`/`NewBlob`/`NewJSON`; the URI and a fallback MIME
+are filled by the package. `Vars` exposes `Get`/`Lookup`/`Has`/`List`/`Int`
+(`Lookup` is the comma-ok form distinguishing absent from present-but-empty; a
+map, not a typed struct — templates have no SDK decode).
+
+Sentinels (`errors.go`): `ErrNotFound` and `ErrTemplateMismatch` are
+**return-side** sentinels — returning either from a read func yields
+`mcp.ResourceNotFoundError` (`CodeResourceNotFound`) on the wire (cross-transport
+`errors.Is` is not promised, like the `elicit` sentinels); `ErrInvalidVars`
+wraps a failed `Vars.Int`; `ErrNoContent` is returned when a read func produces
+no content (a nil `Content` or an empty `Raw`), so a handler bug surfaces as a
+real error, not a silent empty read. **Subscriptions are not yet supported** —
+`list-changed` is free (the SDK fires it on `AddResource`/`RemoveResources`), but
+subscriptions need `SubscribeHandler`/`UnsubscribeHandler` set at
+`mcp.NewServer` construction, which the caller owns.
+
 ### `registry`
 
-Collects tool registrations as server-independent descriptors and binds them to
-a server in one pass, so the tool catalogue can be enumerated/filtered without a
-live server. `registry.Read(...)` / `registry.Write(...)` mirror the toolkit
-builder (`WithOutputSchema` / `WithValidateFunc` / `WithElicitFunc` options) and
-return a `Registration`. `New(groups...)` flattens `[]Registration` slices into
-an ordered `Registry`, preserving order. `(Registry).Bind(s, Enable{Write:
-bool})` installs registrations; `AccessWrite` tools are skipped unless
-`Enable.Write` is true.
+Collects tool and resource registrations as server-independent descriptors and
+binds them to a server in one pass, so the catalogue can be enumerated/filtered
+without a live server. `registry.Read(...)` / `registry.Write(...)` mirror the
+toolkit builder (`WithOutputSchema` / `WithValidateFunc` / `WithElicitFunc`
+options); `registry.Resource(...)` / `registry.ResourceTemplate(...)` mirror the
+resource builder (`WithMIMEType` / `WithTitle` / `WithSize` / `WithAnnotations`
+options) — all return a `Registration`. `New(groups...)` flattens
+`[]Registration` slices into an ordered `Registry`, preserving order.
+`(Registry).Bind(s, Enable{Write: bool})` installs registrations; `AccessWrite`
+tools are skipped unless `Enable.Write` is true, while `AccessResource`
+resources/templates (read-only) **always bind**.
 
 ### `openapi`
 
@@ -176,4 +214,6 @@ client↔server pair over the SDK's in-memory transport: `NewSession(tb, server)
 and `NewSessionWithElicitation(tb, server, handler)` (both take a `testing.TB`).
 `NewSession` advertises no elicitation capability, so elicitation-gated write
 tools fail under it — use `NewSessionWithElicitation` for those. Use these to
-exercise registered tools end-to-end rather than calling internals directly.
+exercise registered tools end-to-end rather than calling internals directly. For
+resources, `ReadResourceText`/`ReadResourceBlob`/`ReadResourceJSON[T]` and
+`ListResourceURIs`/`ListResourceTemplateURIs` drive reads/listing over a session.

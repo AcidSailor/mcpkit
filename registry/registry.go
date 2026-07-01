@@ -12,6 +12,8 @@ type Access int
 const (
 	AccessRead Access = iota
 	AccessWrite
+	// AccessResource marks a read-only resource or template; it always binds.
+	AccessResource
 )
 
 // Registration is a server-independent description of one tool.
