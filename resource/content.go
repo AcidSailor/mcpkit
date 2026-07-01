@@ -7,6 +7,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Default MIME types for the built-in Content shapes, exported so callers can
+// pass them to WithMIMEType instead of repeating the literals.
+const (
+	// MIMEText is the fallback MIME type for Text content.
+	MIMEText = "text/plain"
+	// MIMEBlob is the fallback MIME type for Blob content.
+	MIMEBlob = "application/octet-stream"
+	// MIMEJSON is the MIME type JSON content always serves.
+	MIMEJSON = "application/json"
+)
+
 // Content produces the contents of a single resource read. The uri and a
 // fallback MIME type are supplied by the package at read time, so handlers
 // need not repeat them.
@@ -17,20 +28,20 @@ type Content interface {
 }
 
 // Text is UTF-8 textual content. MIME overrides the resource's declared
-// MIMEType; absent both, it defaults to "text/plain".
+// MIMEType; absent both, it defaults to MIMEText.
 type Text struct {
 	Text string
 	MIME string
 }
 
 // Blob is binary content, base64-encoded on the wire by the SDK. MIME
-// overrides the resource's MIMEType; absent both, "application/octet-stream".
+// overrides the resource's MIMEType; absent both, MIMEBlob.
 type Blob struct {
 	Data []byte
 	MIME string
 }
 
-// JSON marshals Value and serves it as text with MIME "application/json"
+// JSON marshals Value and serves it as text with MIME MIMEJSON
 // unconditionally — the resource's declared MIMEType (and WithMIMEType) do not
 // apply to JSON content.
 type JSON[T any] struct {
@@ -60,7 +71,7 @@ func NewJSON[T any](v T) JSON[T] { return JSON[T]{Value: v} }
 func (t Text) contents(
 	uri, fallback string,
 ) ([]*mcp.ResourceContents, error) {
-	mime := cmp.Or(t.MIME, fallback, "text/plain")
+	mime := cmp.Or(t.MIME, fallback, MIMEText)
 	return []*mcp.ResourceContents{{
 		URI: uri, MIMEType: mime, Text: t.Text,
 	}}, nil
@@ -69,7 +80,7 @@ func (t Text) contents(
 func (b Blob) contents(
 	uri, fallback string,
 ) ([]*mcp.ResourceContents, error) {
-	mime := cmp.Or(b.MIME, fallback, "application/octet-stream")
+	mime := cmp.Or(b.MIME, fallback, MIMEBlob)
 	return []*mcp.ResourceContents{{
 		URI: uri, MIMEType: mime, Blob: b.Data,
 	}}, nil
@@ -83,7 +94,7 @@ func (j JSON[T]) contents(
 		return nil, err
 	}
 	return []*mcp.ResourceContents{{
-		URI: uri, MIMEType: "application/json", Text: string(data),
+		URI: uri, MIMEType: MIMEJSON, Text: string(data),
 	}}, nil
 }
 
