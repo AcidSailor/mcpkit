@@ -6,7 +6,8 @@ servers on the official
 `mcpkit` doesn't reimplement the protocol — it wraps the SDK with ergonomic
 helpers for serving over transports, registering type-safe read/write tools,
 gating mutations behind MCP elicitation, assembling JSON Schemas from OpenAPI
-documents, and driving in-memory tests. Library only (no command, no `main`).
+documents, and driving in-memory tests. The importable API is library only; the
+sole `main` is `cmd/mcpbstage`, a build-time CLI for staging `.mcpb` bundles.
 
 ## Features
 
