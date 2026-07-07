@@ -84,7 +84,11 @@ func Stage(distDir, manifestPath, outDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "manifest.json"), stamped, 0o644); err != nil {
+	if err := os.WriteFile(
+		filepath.Join(outDir, "manifest.json"),
+		stamped,
+		0o644,
+	); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 
@@ -93,7 +97,11 @@ func Stage(distDir, manifestPath, outDir string) error {
 		if err != nil {
 			return err
 		}
-		if err := copyFile(src, filepath.Join(outDir, "server", t.base), 0o755); err != nil {
+		if err := copyFile(
+			src,
+			filepath.Join(outDir, "server", t.base),
+			0o755,
+		); err != nil {
 			return fmt.Errorf("copy %s: %w", t.base, err)
 		}
 	}
@@ -154,7 +162,10 @@ func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, binaryTarget{base: base, goos: goos, goarch: goarch})
+		targets = append(
+			targets,
+			binaryTarget{base: base, goos: goos, goarch: goarch},
+		)
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("manifest declares no server binaries")
@@ -168,7 +179,10 @@ func splitTarget(base string) (goos, goarch string, err error) {
 	name := strings.TrimSuffix(base, ".exe")
 	parts := strings.Split(name, "-")
 	if len(parts) < 3 {
-		return "", "", fmt.Errorf("cannot parse os/arch from binary name %q", base)
+		return "", "", fmt.Errorf(
+			"cannot parse os/arch from binary name %q",
+			base,
+		)
 	}
 	return parts[len(parts)-2], parts[len(parts)-1], nil
 }
@@ -179,7 +193,11 @@ func findArtifact(arts []artifact, goos, goarch string) (string, error) {
 			return a.Path, nil
 		}
 	}
-	return "", fmt.Errorf("no Binary artifact for %s/%s in artifacts.json", goos, goarch)
+	return "", fmt.Errorf(
+		"no Binary artifact for %s/%s in artifacts.json",
+		goos,
+		goarch,
+	)
 }
 
 // stampVersion sets the top-level "version" field, preserving all other keys.
@@ -201,7 +219,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -216,7 +234,10 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Chmod(dst, mode) // enforce mode even if a prior file/umask interfered
+	return os.Chmod(
+		dst,
+		mode,
+	) // enforce mode even if a prior file/umask interfered
 }
 
 // copyTree copies the immediate files of src into dst. mcpb/ holds manifest.json
@@ -230,7 +251,11 @@ func copyTree(src, dst string) error {
 		if e.IsDir() {
 			continue
 		}
-		if err := copyFile(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), 0o644); err != nil {
+		if err := copyFile(
+			filepath.Join(src, e.Name()),
+			filepath.Join(dst, e.Name()),
+			0o644,
+		); err != nil {
 			return err
 		}
 	}

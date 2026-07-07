@@ -115,8 +115,13 @@ func TestStage_LaysOutBundle(t *testing.T) {
 func TestStage_MissingBinaryFails(t *testing.T) {
 	root, dist, manifest := fixture(t)
 	darwin := filepath.Join(dist, "foo_darwin_arm64_v8.0", "foo")
-	writeFile(t, filepath.Join(dist, "artifacts.json"),
-		`[{"type":"Binary","goos":"darwin","goarch":"arm64","path":"`+filepath.ToSlash(darwin)+`"}]`)
+	writeFile(
+		t,
+		filepath.Join(dist, "artifacts.json"),
+		`[{"type":"Binary","goos":"darwin","goarch":"arm64","path":"`+filepath.ToSlash(
+			darwin,
+		)+`"}]`,
+	)
 	if err := Stage(dist, manifest, filepath.Join(root, "out")); err == nil {
 		t.Fatal("expected error for missing linux/amd64 binary")
 	}
