@@ -43,6 +43,7 @@ type manifestServer struct {
 // binaryTarget is one platform binary the manifest asks the bundle to carry.
 type binaryTarget struct {
 	base   string // in-bundle filename, e.g. "foo-linux-amd64" (may end .exe)
+	name   string // GoReleaser binary name, e.g. "foo" (base minus -goos-goarch)
 	goos   string
 	goarch string
 }
@@ -76,7 +77,8 @@ func Stage(distDir, manifestPath, outDir string) error {
 		return fmt.Errorf("create out dir: %w", err)
 	}
 
-	// Copy manifest siblings (icons/assets), then overwrite the stamped manifest.
+	// Copy flat manifest siblings (e.g. icon.png), then overwrite with the
+	// stamped manifest.json.
 	if err := copyTree(filepath.Dir(manifestPath), outDir); err != nil {
 		return err
 	}
@@ -93,7 +95,7 @@ func Stage(distDir, manifestPath, outDir string) error {
 	}
 
 	for _, t := range targets {
-		src, err := findArtifact(arts, t.goos, t.goarch)
+		src, err := findArtifact(arts, t)
 		if err != nil {
 			return err
 		}
@@ -136,36 +138,43 @@ func readArtifacts(p string) ([]artifact, error) {
 }
 
 // parseTargets extracts the platform binaries the manifest declares from
-// mcp_config.command and every platform_overrides.<plat>.command.
+// mcp_config.command and every platform_overrides.<plat>.command. A command
+// present but empty is a malformed manifest and fails loudly, naming the
+// platform, rather than silently dropping that platform from the bundle.
 func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 	var ms manifestServer
 	if err := json.Unmarshal(manBytes, &ms); err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
-	cmds := []string{ms.Server.MCPConfig.Command}
-	for _, ov := range ms.Server.MCPConfig.PlatformOverrides {
-		cmds = append(cmds, ov.Command)
+	// Keep the platform label alongside each command so an empty command can
+	// name which declaration is at fault. The base command has no override key.
+	cmds := []struct{ plat, cmd string }{
+		{"mcp_config.command", ms.Server.MCPConfig.Command},
+	}
+	for plat, ov := range ms.Server.MCPConfig.PlatformOverrides {
+		cmds = append(cmds, struct{ plat, cmd string }{
+			"platform_overrides." + plat, ov.Command,
+		})
 	}
 
 	var targets []binaryTarget
 	seen := map[string]bool{}
 	for _, c := range cmds {
-		if c == "" {
-			continue
+		if c.cmd == "" {
+			return nil, fmt.Errorf("manifest %s is empty", c.plat)
 		}
-		base := path.Base(c) // strip "${__dirname}/server/"
+		base := path.Base(c.cmd) // last element: drops "${__dirname}/server/"
 		if seen[base] {
 			continue
 		}
 		seen[base] = true
-		goos, goarch, err := splitTarget(base)
+		name, goos, goarch, err := splitTarget(base)
 		if err != nil {
 			return nil, err
 		}
-		targets = append(
-			targets,
-			binaryTarget{base: base, goos: goos, goarch: goarch},
-		)
+		targets = append(targets, binaryTarget{
+			base: base, name: name, goos: goos, goarch: goarch,
+		})
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("manifest declares no server binaries")
@@ -173,34 +182,78 @@ func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 	return targets, nil
 }
 
-// splitTarget parses "<name>-<goos>-<goarch>[.exe]" into goos/goarch by taking
-// the last two dash-separated tokens (robust to dashes in <name>).
-func splitTarget(base string) (goos, goarch string, err error) {
-	name := strings.TrimSuffix(base, ".exe")
-	parts := strings.Split(name, "-")
+// splitTarget parses "<name>-<goos>-<goarch>[.exe]" into its name, goos and
+// goarch by taking the last two dash-separated tokens (robust to dashes in
+// <name>); everything before them is the GoReleaser binary name.
+func splitTarget(base string) (name, goos, goarch string, err error) {
+	trimmed := strings.TrimSuffix(base, ".exe")
+	parts := strings.Split(trimmed, "-")
 	if len(parts) < 3 {
-		return "", "", fmt.Errorf(
+		return "", "", "", fmt.Errorf(
 			"cannot parse os/arch from binary name %q",
 			base,
 		)
 	}
-	return parts[len(parts)-2], parts[len(parts)-1], nil
+	goos = parts[len(parts)-2]
+	goarch = parts[len(parts)-1]
+	name = strings.Join(parts[:len(parts)-2], "-")
+	return name, goos, goarch, nil
 }
 
-func findArtifact(arts []artifact, goos, goarch string) (string, error) {
+// findArtifact resolves the source binary for t. It matches on goos/goarch and,
+// when a build emits several Binary artifacts for one platform (multiple
+// GoReleaser builds, or goamd64/goarm variants), disambiguates by the binary
+// name t asks for. It refuses to guess: zero or an irreducibly-ambiguous set of
+// matches is an error, never a silently-wrong binary staged under t.base.
+func findArtifact(arts []artifact, t binaryTarget) (string, error) {
+	var matches []artifact
 	for _, a := range arts {
-		if a.Type == "Binary" && a.Goos == goos && a.Goarch == goarch {
-			return a.Path, nil
+		if a.Type == "Binary" && a.Goos == t.goos && a.Goarch == t.goarch {
+			matches = append(matches, a)
 		}
 	}
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf(
+			"no Binary artifact for %s/%s in artifacts.json",
+			t.goos,
+			t.goarch,
+		)
+	case 1:
+		return matches[0].Path, nil
+	}
+	// >1 match: narrow to the binary the manifest names (multiple builds).
+	var named []artifact
+	for _, a := range matches {
+		if binaryName(a.Path) == t.name {
+			named = append(named, a)
+		}
+	}
+	if len(named) == 1 {
+		return named[0].Path, nil
+	}
+	paths := make([]string, len(matches))
+	for i, a := range matches {
+		paths[i] = a.Path
+	}
 	return "", fmt.Errorf(
-		"no Binary artifact for %s/%s in artifacts.json",
-		goos,
-		goarch,
+		"ambiguous Binary artifacts for %s (%s/%s): %s",
+		t.base,
+		t.goos,
+		t.goarch,
+		strings.Join(paths, ", "),
 	)
 }
 
-// stampVersion sets the top-level "version" field, preserving all other keys.
+// binaryName is the GoReleaser binary name for an artifact path: its last
+// element with any ".exe" suffix removed, to compare against binaryTarget.name.
+func binaryName(p string) string {
+	return strings.TrimSuffix(filepath.Base(p), ".exe")
+}
+
+// stampVersion sets the top-level "version" field, preserving all other keys
+// (the map round-trip reorders keys alphabetically — harmless, mcpb pack and
+// the runtime read by key, not order).
 func stampVersion(manBytes []byte, version string) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(manBytes, &doc); err != nil {
@@ -241,7 +294,9 @@ func copyFile(src, dst string, mode os.FileMode) error {
 }
 
 // copyTree copies the immediate files of src into dst. mcpb/ holds manifest.json
-// plus optional flat assets, so non-recursive is sufficient.
+// plus optional flat assets, so non-recursive is sufficient; a nested directory
+// is an unsupported layout and fails loudly rather than being silently dropped
+// from the bundle.
 func copyTree(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
@@ -249,7 +304,11 @@ func copyTree(src, dst string) error {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			continue
+			return fmt.Errorf(
+				"unsupported nested directory %q in %s: bundle assets must be flat",
+				e.Name(),
+				src,
+			)
 		}
 		if err := copyFile(
 			filepath.Join(src, e.Name()),

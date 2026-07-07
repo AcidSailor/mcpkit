@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-`mcpkit` is a Go **library** (no `main`/`cmd`) of shared primitives for building
+`mcpkit` is a Go **library** of shared primitives for building
 MCP servers on the official
 [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
 It doesn't reimplement the MCP protocol; it wraps the SDK with ergonomic
@@ -15,6 +15,8 @@ serving, tool-registration, schema-assembly, and test helpers used across
 - Go 1.26
 - The root package exports nothing (see `doc.go`); all functionality lives in
   subpackages.
+- The library carries no `main`. The one exception is `cmd/mcpbstage`, a
+  build-time CLI helper (not part of the importable API — see Architecture).
 
 ## Common commands
 
@@ -49,6 +51,10 @@ Subpackages layered on the SDK:
 - **`openapi/`** — assembles per-tool JSON Schemas from a dereferenced OpenAPI document.
 - **`validate/`** — small generic input validators.
 - **`mcptest/`** — in-memory client↔server session helpers for tests.
+- **`cmd/mcpbstage/`** — the sole `main`: a build-time CLI (stdlib + `kong`)
+  that stages an `.mcpb` bundle directory (binaries + version-stamped manifest)
+  from GoReleaser's `dist/` output for `mcpb pack` to validate and zip. Not
+  imported by the library; `kong` is its dependency alone.
 
 ### Error convention (repo-wide)
 
