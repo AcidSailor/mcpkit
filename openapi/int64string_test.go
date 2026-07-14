@@ -51,6 +51,7 @@ func TestInt64String_RoundTripBoundariesAndNegative(t *testing.T) {
 	cases := map[string]int64{
 		`"9223372036854775807"`:  math.MaxInt64,
 		`"-9223372036854775808"`: math.MinInt64,
+		`"2011734313187604080"`:  bigID,
 		`"-2011734313187604080"`: -bigID,
 		`"0"`:                    0,
 	}
@@ -62,22 +63,6 @@ func TestInt64String_RoundTripBoundariesAndNegative(t *testing.T) {
 		require.NoError(t, err, "input %s", in)
 		assert.JSONEq(t, in, string(out), "input %s", in)
 	}
-}
-
-func TestInt64String_MarshalEmitsQuotedString(t *testing.T) {
-	v := openapi.Int64String(bigID)
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-	assert.JSONEq(t, `"2011734313187604080"`, string(b))
-}
-
-func TestInt64String_RoundTripIsIdentity(t *testing.T) {
-	const in = `"2011734313187604080"`
-	var v openapi.Int64String
-	require.NoError(t, json.Unmarshal([]byte(in), &v))
-	out, err := json.Marshal(v)
-	require.NoError(t, err)
-	assert.JSONEq(t, in, string(out))
 }
 
 func TestInt64StringSchema(t *testing.T) {

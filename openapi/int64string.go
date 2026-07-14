@@ -1,7 +1,6 @@
 package openapi
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -23,15 +22,11 @@ func (v Int64String) Int64() int64 { return int64(v) }
 // UnmarshalJSON accepts only a quoted decimal integer; a bare number, null,
 // empty, or non-integer string is an error.
 func (v *Int64String) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 || data[0] != '"' {
-		return fmt.Errorf(
-			"int64 string: expected a quoted integer, got %s", data,
-		)
-	}
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
-		return err
+		return fmt.Errorf(
+			"int64 string: expected a quoted integer: %w", err,
+		)
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
