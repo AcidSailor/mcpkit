@@ -2,6 +2,7 @@ package openapi_test
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -22,17 +23,44 @@ func TestInt64String_UnmarshalString_PreservesBigID(t *testing.T) {
 }
 
 func TestInt64String_UnmarshalRejectsBareNumber(t *testing.T) {
-	var v openapi.Int64String
-	// A bare JSON number is already truncated by a float64 client; reject it
-	// loudly rather than act on the wrong id.
-	err := json.Unmarshal([]byte(`2011734313187604080`), &v)
-	assert.Error(t, err)
+	// Any bare JSON number is rejected — the guard is unconditional, not
+	// range-driven: a small in-range 12 is refused just like a huge id that a
+	// float64 client has already truncated.
+	for _, in := range []string{`12`, `2011734313187604080`} {
+		var v openapi.Int64String
+		assert.Error(t, json.Unmarshal([]byte(in), &v), "input %s", in)
+	}
 }
 
 func TestInt64String_UnmarshalRejectsInvalid(t *testing.T) {
-	for _, in := range []string{`null`, `""`, `"12x"`, `"1.5"`, `" 12"`} {
+	// The pattern (^-?[0-9]+$) is looser than the decoder by design: an
+	// overflowing digit run matches the pattern yet ParseInt rejects it. Both
+	// int64 bounds+1 must fail loud.
+	invalid := []string{
+		`null`, `""`, `"12x"`, `"1.5"`, `" 12"`,
+		`"9223372036854775808"`,  // math.MaxInt64 + 1
+		`"-9223372036854775809"`, // math.MinInt64 - 1
+	}
+	for _, in := range invalid {
 		var v openapi.Int64String
 		assert.Error(t, json.Unmarshal([]byte(in), &v), "input %s", in)
+	}
+}
+
+func TestInt64String_RoundTripBoundariesAndNegative(t *testing.T) {
+	cases := map[string]int64{
+		`"9223372036854775807"`:  math.MaxInt64,
+		`"-9223372036854775808"`: math.MinInt64,
+		`"-2011734313187604080"`: -bigID,
+		`"0"`:                    0,
+	}
+	for in, want := range cases {
+		var v openapi.Int64String
+		require.NoError(t, json.Unmarshal([]byte(in), &v), "input %s", in)
+		assert.Equal(t, want, v.Int64(), "input %s", in)
+		out, err := json.Marshal(v)
+		require.NoError(t, err, "input %s", in)
+		assert.JSONEq(t, in, string(out), "input %s", in)
 	}
 }
 
@@ -59,9 +87,9 @@ func TestInt64StringSchema(t *testing.T) {
 	assert.Equal(t, "the order id", s.Description)
 }
 
-func TestStringifyIntParam_RewritesAndPreservesDescription(t *testing.T) {
+func TestStringifyIntParam_RewritesAndPreservesTitleDescription(t *testing.T) {
 	s := openapi.Object(map[string]*jsonschema.Schema{
-		"orderId": {Type: "integer", Description: "keep me"},
+		"orderId": {Type: "integer", Title: "Order id", Description: "keep me"},
 		"other":   {Type: "string"},
 	}, []string{"orderId"})
 
@@ -69,13 +97,18 @@ func TestStringifyIntParam_RewritesAndPreservesDescription(t *testing.T) {
 
 	assert.Same(t, s, got, "returns the same schema for chaining")
 	assert.Equal(t, "string", s.Properties["orderId"].Type)
+	assert.Equal(t, "Order id", s.Properties["orderId"].Title)
 	assert.Equal(t, "keep me", s.Properties["orderId"].Description)
 	assert.Equal(t, "string", s.Properties["other"].Type, "other left alone")
 }
 
-func TestStringifyIntParam_AbsentNameIsNoOp(t *testing.T) {
+func TestStringifyIntParam_AbsentNamePanics(t *testing.T) {
 	s := openapi.Object(map[string]*jsonschema.Schema{
 		"other": {Type: "string"},
 	}, nil)
-	assert.NotPanics(t, func() { openapi.StringifyIntParam(s, "orderId") })
+	assert.PanicsWithError(
+		t,
+		`openapi undefined: property "orderId"`,
+		func() { openapi.StringifyIntParam(s, "orderId") },
+	)
 }

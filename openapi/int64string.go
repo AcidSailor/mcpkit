@@ -47,7 +47,9 @@ func (v Int64String) MarshalJSON() ([]byte, error) {
 }
 
 // int64StringPattern constrains the advertised string to an optionally-signed
-// decimal integer. Range and exact parsing are enforced on decode.
+// decimal integer. It is an advisory client hint, not the gate: UnmarshalJSON's
+// ParseInt is authoritative — it also accepts a leading '+' and, crucially,
+// enforces the int64 range the pattern cannot express.
 const int64StringPattern = `^-?[0-9]+$`
 
 // Int64StringSchema returns the input schema for an Int64String field: a string
@@ -60,13 +62,21 @@ func Int64StringSchema(description string) *jsonschema.Schema {
 	}
 }
 
-// StringifyIntParam rewrites property name of an assembled object schema to the
-// Int64String form, preserving that property's description. It returns s for
-// chaining and is a no-op when the property is absent. Use it to fix an
-// OpenAPI-derived integer id param (e.g. from ParamsSchema) at the MCP boundary.
+// StringifyIntParam rewrites the property named name in an assembled object
+// schema to the Int64String form (string type + pattern), preserving that
+// property's title and description; integer-only keywords (minimum, format, …)
+// are dropped, as they no longer apply to a string. It returns s for chaining
+// and panics (wrapping ErrUndefined) when name is absent — a missing property
+// is a static wiring bug, matching the other openapi accessors. Use it to fix
+// an OpenAPI-derived integer id param (e.g. from ParamsSchema) at the MCP
+// boundary.
 func StringifyIntParam(s *jsonschema.Schema, name string) *jsonschema.Schema {
-	if p, ok := s.Properties[name]; ok {
-		s.Properties[name] = Int64StringSchema(p.Description)
+	p, ok := s.Properties[name]
+	if !ok {
+		panic(fmt.Errorf("%w: property %q", ErrUndefined, name))
 	}
+	rewritten := Int64StringSchema(p.Description)
+	rewritten.Title = p.Title
+	s.Properties[name] = rewritten
 	return s
 }
