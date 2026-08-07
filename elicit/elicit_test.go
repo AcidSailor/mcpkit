@@ -23,7 +23,7 @@ func gateTool(s *mcp.Server) {
 			_ context.Context,
 			req *mcp.CallToolRequest,
 		) (*mcp.CallToolResult, error) {
-			resp, ok := elicit.Response(req.Params)
+			resp, ok := elicit.Response(req.Params.InputResponses)
 			if !ok {
 				res, err := elicit.Ask(
 					req.Session,
@@ -178,15 +178,13 @@ func TestGateClientHandlerFails(t *testing.T) {
 
 func TestResponseAbsent(t *testing.T) {
 	_, ok := elicit.Response(nil)
-	require.False(t, ok, "nil params carry no confirmation")
-
-	_, ok = elicit.Response(&mcp.CallToolParamsRaw{})
 	require.False(t, ok, "a first-pass call carries no confirmation")
 
-	resp, ok := elicit.Response(&mcp.CallToolParamsRaw{
-		InputResponses: mcp.InputResponseMap{
-			elicit.GateID: &mcp.ElicitResult{Action: "accept"},
-		},
+	_, ok = elicit.Response(mcp.InputResponseMap{"other": nil})
+	require.False(t, ok, "another request's answer is not the gate's")
+
+	resp, ok := elicit.Response(mcp.InputResponseMap{
+		elicit.GateID: &mcp.ElicitResult{Action: "accept"},
 	})
 	require.True(t, ok)
 	require.NoError(t, elicit.Decide(resp))

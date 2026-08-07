@@ -17,7 +17,7 @@ func AddWrite[In, Out any](t Tool[In, Out]) {
 			in In,
 		) (*mcp.CallToolResult, Out, error) {
 			var zero Out
-			resp, ok := elicit.Response(req.Params)
+			resp, ok := elicit.Response(req.Params.InputResponses)
 			if !ok {
 				res, err := t.ask(ctx, req.Session, in)
 				return res, zero, err

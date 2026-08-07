@@ -34,11 +34,8 @@ func Ask(
 }
 
 // Response returns the confirmation the client fulfilled, if present.
-func Response(params *mcp.CallToolParamsRaw) (mcp.InputResponse, bool) {
-	if params == nil {
-		return nil, false
-	}
-	resp, ok := params.InputResponses[GateID]
+func Response(responses mcp.InputResponseMap) (mcp.InputResponse, bool) {
+	resp, ok := responses[GateID]
 	return resp, ok
 }
 
