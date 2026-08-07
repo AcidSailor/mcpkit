@@ -16,7 +16,7 @@ func AddRead[In, Out any](t Tool[In, Out]) {
 			_ *mcp.CallToolRequest,
 			in In,
 		) (*mcp.CallToolResult, Out, error) {
-			out, err := t.runValidated(ctx, in, nil)
+			out, err := t.runValidated(ctx, in)
 			return nil, out, err
 		},
 	)

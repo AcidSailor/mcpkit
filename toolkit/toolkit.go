@@ -93,28 +93,31 @@ func (t Tool[In, Out]) mcpTool(
 	return tool
 }
 
-// runValidated runs validator, optional gate, then call; wraps errs with name.
+// wrap prefixes err with the tool name, preserving sentinels for errors.Is.
+func (t Tool[In, Out]) wrap(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", t.name, err)
+}
+
+// validate runs the optional validator on decoded input.
+func (t Tool[In, Out]) validate(ctx context.Context, in In) error {
+	if t.validateFunc == nil {
+		return nil
+	}
+	return t.validateFunc(ctx, in)
+}
+
+// runValidated runs the validator then the call; wraps errs with the name.
 func (t Tool[In, Out]) runValidated(
 	ctx context.Context,
 	in In,
-	gate func() error,
 ) (Out, error) {
-	out, err := func() (Out, error) {
-		var out Out
-		if t.validateFunc != nil {
-			if err := t.validateFunc(ctx, in); err != nil {
-				return out, err
-			}
-		}
-		if gate != nil {
-			if err := gate(); err != nil {
-				return out, err
-			}
-		}
-		return t.callFunc(ctx, in)
-	}()
-	if err != nil {
-		return out, fmt.Errorf("%s: %w", t.name, err)
+	var out Out
+	if err := t.validate(ctx, in); err != nil {
+		return out, t.wrap(err)
 	}
-	return out, nil
+	out, err := t.callFunc(ctx, in)
+	return out, t.wrap(err)
 }

@@ -16,6 +16,10 @@
 //     ErrNoElicitation); the call runs only on an accept action (decline ->
 //     ErrUserDeclined, cancel -> ErrUserCanceled).
 //
+// A gated write runs its handler twice per call — once to ask for confirmation,
+// once to act (see package elicit). The validator therefore runs on both passes
+// and must be free of side effects; the call func runs only on the second.
+//
 // toolkit re-exports the elicit sentinels (ErrUserDeclined, ErrUserCanceled,
 // ErrNoElicitation, ErrUnexpectedElicitAction, ErrElicitationFailed) so callers
 // need not import elicit. The shared handler pipeline (runValidated) wraps any

@@ -52,7 +52,7 @@ func TestRunValidatedPreservesValidateSentinel(t *testing.T) {
 			return validate.ErrEmpty
 		})
 
-	_, err := tl.runValidated(context.Background(), echoIn{}, nil)
+	_, err := tl.runValidated(context.Background(), echoIn{})
 	require.ErrorIs(t, err, validate.ErrEmpty)
 }
 

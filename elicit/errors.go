@@ -7,8 +7,7 @@ var (
 	ErrUserDeclined  = errors.New("declined by user")
 	ErrUserCanceled  = errors.New("canceled by user")
 	ErrNoElicitation = errors.New(
-		"client must support MCP elicitation for write tools " +
-			"(a stateless HTTP server handler also drops this capability)",
+		"client must support MCP elicitation for write tools",
 	)
 	ErrUnexpectedElicitAction = errors.New("unexpected elicit action")
 	ErrElicitationFailed      = errors.New("elicitation failed")

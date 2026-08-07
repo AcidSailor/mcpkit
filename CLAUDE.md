@@ -90,17 +90,21 @@ with middleware (auth, CORS, logging) or mounting it in a mux alongside other
 routes (health, metrics); a nil `Handler` returns `ErrNilHandler`, and a
 malformed `Addr` returns `ErrInvalidAddr`.
 
-The handler's `StreamableHTTPOptions` are the caller's choice, and elicitation
-constrains them: a stateless handler **cannot serve elicitation-gated write
-tools** (it uses a temporary session with default init params and rejects
-server→client requests, so `elicit.Gate` fails with `ErrNoElicitation` at call
-time). Servers that register write tools (`toolkit.AddWrite` / `registry.Write`)
-must build a **stateful** handler — `StreamableHTTPOptions{Stateless: false,
-JSONResponse: false}` — which keeps the initialized session (`Mcp-Session-Id`)
-and serves the GET SSE stream so server→client elicitation can be delivered (an
-optional `EventStore` aids stream resumption). Read-only servers can use
-`{Stateless: true, JSONResponse: true}`, the only mode that scales horizontally
-without session affinity. A
+The handler's `StreamableHTTPOptions` are the caller's choice, and that choice
+decides **which MCP protocol the session negotiates**: `Stateless: true` speaks
+`2026-07-28`, `Stateless: false` falls back to the legacy `initialize` handshake
+and is capped at `2025-11-25` (`JSONResponse` does not affect this).
+Elicitation-gated write tools (`toolkit.AddWrite` / `registry.Write`) are served
+in **both** modes by different mechanisms — on `2026-07-28` the confirmation is a
+multi-round-trip request (SEP-2322) needing no retained session, on the legacy
+protocol the SDK's server-side shim elicits over the live session. **Prefer
+`{Stateless: true, JSONResponse: true}`**: it serves write tools, scales
+horizontally without session affinity, and is the only mode where the SDK's
+client-side result caching (`ttlMs`, SEP-2549) is active. Reach for
+`Stateless: false` only to serve clients predating `2026-07-28` (they cannot
+retry, and the shim's server→client elicitation is unavailable when stateless)
+or for an `EventStore` aiding stream resumption; stateful sessions live
+in-process, so multi-replica deployments on that path need sticky routing. A
 non-nil `TLSConfig` makes it serve HTTPS via `ListenAndServeTLS` (the config must
 supply its own certificates). Only `WithShutdownTimeout` (the graceful-shutdown
 deadline, not an `http.Server` field) stays the package's concern.
@@ -121,6 +125,11 @@ nil). Chain optional config, then register:
   by MCP elicitation**: the client must support elicitation (else
   `ErrNoElicitation`); the call runs only on an `accept` action
   (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`).
+
+A gated write **runs its handler twice** per call — once to ask (`elicit.Ask`
+returns an input-required result), once to act after the client retries with the
+answer (`elicit.Response` + `elicit.Decide`). The validator therefore runs on
+both passes and **must be side-effect free**; `callFunc` runs only on the second.
 
 `AddReadFunc(tool, callFunc)` / `AddWriteFunc(tool, callFunc)` are the
 lower-level variants that register a custom `mcp.ToolHandlerFor[In, Out]` as-is
@@ -170,7 +179,8 @@ map, not a typed struct — templates have no SDK decode).
 
 Sentinels (`errors.go`): `ErrNotFound` and `ErrTemplateMismatch` are
 **return-side** sentinels — returning either from a read func yields
-`mcp.ResourceNotFoundError` (`CodeResourceNotFound`) on the wire (cross-transport
+`mcp.ResourceNotFoundError` on the wire — `jsonrpc.CodeInvalidParams` since SDK
+v1.7.0, previously `-32002` (cross-transport
 `errors.Is` is not promised, like the `elicit` sentinels); `ErrInvalidVars`
 wraps a failed `Vars.Int`; `ErrNoContent` is returned when a read func produces
 no content (a nil `Content` or an empty `Raw`), so a handler bug surfaces as a

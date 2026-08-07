@@ -168,3 +168,35 @@ func TestAddWrite_ValidateBeforeElicit(t *testing.T) {
 	assert.True(t, res.IsError)
 	assert.False(t, elicited, "validation must run before elicitation")
 }
+
+// A gated call runs the handler twice: ask, then act. The write happens once.
+func TestAddWrite_TwoPasses(t *testing.T) {
+	var validated, called int
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+	AddWrite(New(s, "do", "does", objectSchema(),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			called++
+			return echoOut{Echo: in.Msg}, nil
+		}).
+		WithValidateFunc(func(_ context.Context, _ echoIn) error {
+			validated++
+			return nil
+		}).
+		WithElicitParamsFunc(elicit.SimpleConfirmation[echoIn]("confirm?")))
+
+	cs := newTestMCPSessionWithElicitation(
+		t,
+		s,
+		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			return &mcp.ElicitResult{Action: "accept"}, nil
+		},
+	)
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "do",
+		Arguments: map[string]any{"msg": "hi"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	assert.Equal(t, 2, validated, "validator runs on both passes")
+	assert.Equal(t, 1, called, "the write runs once")
+}

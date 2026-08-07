@@ -112,11 +112,11 @@ func main() {
 
     // The HTTP and Both transports serve a caller-built *http.Server as-is.
     // Build the Handler with mcp.NewStreamableHTTPHandler (optionally wrapped or
-    // muxed). This server has a write tool, so the handler must be stateful — a
-    // stateless one can't deliver the server->client elicitation request.
+    // muxed). Stateless serves write tools too — elicitation is a multi
+    // round-trip request, so nothing is held between the prompt and the call.
     handler := mcp.NewStreamableHTTPHandler(
         func(*http.Request) *mcp.Server { return mcpServer },
-        &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: false},
+        &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
     )
     srv := server.New(
         mcpServer,

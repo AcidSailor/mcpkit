@@ -138,7 +138,7 @@ func TestTemplate_NotFoundMapsToWireCode(t *testing.T) {
 	require.Error(t, err)
 	var werr *jsonrpc.Error
 	require.ErrorAs(t, err, &werr)
-	assert.Equal(t, int64(mcp.CodeResourceNotFound), werr.Code)
+	assert.Equal(t, int64(jsonrpc.CodeInvalidParams), werr.Code)
 }
 
 func TestTemplate_ListAdvertised(t *testing.T) {

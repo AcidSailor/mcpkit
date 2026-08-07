@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// gateTool registers the two-pass gate: ask on the first call, act on the retry.
 func gateTool(s *mcp.Server) {
 	s.AddTool(
 		&mcp.Tool{
@@ -18,19 +19,33 @@ func gateTool(s *mcp.Server) {
 			Description: "test gate",
 			InputSchema: &jsonschema.Schema{Type: "object"},
 		},
-		func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if err := elicit.Gate(
-				ctx,
-				req.Session,
-				&mcp.ElicitParams{Message: "ok?"},
-			); err != nil {
-				var r mcp.CallToolResult
-				r.SetError(err)
-				return &r, nil
+		func(
+			_ context.Context,
+			req *mcp.CallToolRequest,
+		) (*mcp.CallToolResult, error) {
+			resp, ok := elicit.Response(req.Params)
+			if !ok {
+				res, err := elicit.Ask(
+					req.Session,
+					&mcp.ElicitParams{Message: "ok?"},
+				)
+				if err != nil {
+					return toolError(err), nil
+				}
+				return res, nil
+			}
+			if err := elicit.Decide(resp); err != nil {
+				return toolError(err), nil
 			}
 			return &mcp.CallToolResult{}, nil
 		},
 	)
+}
+
+func toolError(err error) *mcp.CallToolResult {
+	var r mcp.CallToolResult
+	r.SetError(err)
+	return &r
 }
 
 func session(
@@ -57,140 +72,122 @@ func session(
 	return cs
 }
 
-func TestGateNoElicitationCapability(t *testing.T) {
+// gateServer wires a fresh server and session answering with action.
+func gateServer(t *testing.T, action string) *mcp.ClientSession {
+	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s)
-
-	cs := session(
+	return session(
 		t,
 		s,
-		nil,
-	) // no handler → no elicitation capability
+		func(
+			_ context.Context,
+			_ *mcp.ElicitRequest,
+		) (*mcp.ElicitResult, error) {
+			return &mcp.ElicitResult{Action: action}, nil
+		},
+	)
+}
 
-	res, err := cs.CallTool(
+func callGate(
+	t *testing.T,
+	cs *mcp.ClientSession,
+) (*mcp.CallToolResult, error) {
+	t.Helper()
+	return cs.CallTool(
 		context.Background(),
 		&mcp.CallToolParams{Name: "gate"},
 	)
+}
+
+// The client's answer drives the outcome across a full multi-round-trip call.
+func TestGateActions(t *testing.T) {
+	tests := []struct {
+		name    string
+		action  string
+		wantErr error
+		echo    string
+	}{
+		{"accept", "accept", nil, ""},
+		{"decline", "decline", elicit.ErrUserDeclined, ""},
+		{"cancel", "cancel", elicit.ErrUserCanceled, ""},
+		{
+			"unexpected",
+			"maybe",
+			elicit.ErrUnexpectedElicitAction,
+			`"maybe"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := callGate(t, gateServer(t, tt.action))
+			require.NoError(t, err)
+
+			if tt.wantErr == nil {
+				require.False(t, res.IsError, "accept must not error")
+				return
+			}
+			require.True(t, res.IsError, "%s must error", tt.action)
+
+			tc, ok := res.Content[0].(*mcp.TextContent)
+			require.True(t, ok)
+			require.Contains(t, tc.Text, tt.wantErr.Error())
+			if tt.echo != "" {
+				require.Contains(t, tc.Text, tt.echo, "must echo the action")
+			}
+		})
+	}
+}
+
+func TestAskNoElicitationCapability(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+	gateTool(s)
+
+	cs := session(t, s, nil) // no handler → no elicitation capability
+
+	res, err := callGate(t, cs)
 	require.NoError(t, err)
-	require.True(
-		t,
-		res.IsError,
-		"expected tool error when client lacks elicitation capability",
-	)
+	require.True(t, res.IsError, "must error without the capability")
+
 	tc, ok := res.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
 	require.Contains(t, tc.Text, elicit.ErrNoElicitation.Error())
 }
 
-func TestGateAccept(t *testing.T) {
+// A failing client handler aborts the call before the server is asked again.
+func TestGateClientHandlerFails(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s)
 
 	cs := session(
 		t,
 		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "accept"}, nil
-		},
-	)
-
-	res, err := cs.CallTool(
-		context.Background(),
-		&mcp.CallToolParams{Name: "gate"},
-	)
-	require.NoError(t, err)
-	require.False(t, res.IsError, "accept should not produce a tool error")
-}
-
-func TestGateDecline(t *testing.T) {
-	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
-
-	cs := session(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "decline"}, nil
-		},
-	)
-
-	res, err := cs.CallTool(
-		context.Background(),
-		&mcp.CallToolParams{Name: "gate"},
-	)
-	require.NoError(t, err)
-	require.True(t, res.IsError, "decline should produce a tool error")
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	require.Contains(t, tc.Text, elicit.ErrUserDeclined.Error())
-}
-
-func TestGateElicitationFailed(t *testing.T) {
-	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
-
-	cs := session(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		func(
+			_ context.Context,
+			_ *mcp.ElicitRequest,
+		) (*mcp.ElicitResult, error) {
 			return nil, errors.New("transport boom")
 		},
 	)
 
-	res, err := cs.CallTool(
-		context.Background(),
-		&mcp.CallToolParams{Name: "gate"},
-	)
-	require.NoError(t, err)
-	require.True(t, res.IsError, "handler error should produce a tool error")
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	require.Contains(t, tc.Text, elicit.ErrElicitationFailed.Error())
+	_, err := callGate(t, cs)
+	require.Error(t, err, "fulfilment failure must fail the call")
+	require.Contains(t, err.Error(), "transport boom")
 }
 
-func TestGateUnexpectedAction(t *testing.T) {
-	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
+func TestResponseAbsent(t *testing.T) {
+	_, ok := elicit.Response(nil)
+	require.False(t, ok, "nil params carry no confirmation")
 
-	cs := session(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "maybe"}, nil
+	_, ok = elicit.Response(&mcp.CallToolParamsRaw{})
+	require.False(t, ok, "a first-pass call carries no confirmation")
+
+	resp, ok := elicit.Response(&mcp.CallToolParamsRaw{
+		InputResponses: mcp.InputResponseMap{
+			elicit.GateID: &mcp.ElicitResult{Action: "accept"},
 		},
-	)
-
-	res, err := cs.CallTool(
-		context.Background(),
-		&mcp.CallToolParams{Name: "gate"},
-	)
-	require.NoError(t, err)
-	require.True(t, res.IsError, "unknown action should produce a tool error")
-	tc, ok := res.Content[0].(*mcp.TextContent)
+	})
 	require.True(t, ok)
-	require.Contains(t, tc.Text, elicit.ErrUnexpectedElicitAction.Error())
-	require.Contains(t, tc.Text, `"maybe"`, "error should echo the action")
-}
-
-func TestGateCancel(t *testing.T) {
-	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
-
-	cs := session(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "cancel"}, nil
-		},
-	)
-
-	res, err := cs.CallTool(
-		context.Background(),
-		&mcp.CallToolParams{Name: "gate"},
-	)
-	require.NoError(t, err)
-	require.True(t, res.IsError, "cancel should produce a tool error")
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	require.Contains(t, tc.Text, elicit.ErrUserCanceled.Error())
+	require.NoError(t, elicit.Decide(resp))
 }

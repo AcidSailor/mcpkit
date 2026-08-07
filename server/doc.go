@@ -21,27 +21,29 @@
 // config must carry its own certificates). Only WithShutdownTimeout (the
 // graceful-shutdown deadline, not an http.Server field) is the package's own.
 //
-// # Elicitation requires a stateful handler
+// # Stateless is the modern path
 //
-// The handler's mcp.StreamableHTTPOptions are the caller's choice, and
-// elicitation constrains them. A stateless handler cannot serve write tools
-// gated by elicitation (toolkit.AddWrite / registry.Write): it uses a temporary
-// session with default init params, so the client's elicitation capability is
-// never retained, and it rejects server->client requests — so elicit.Gate fails
-// with ErrNoElicitation at call time. Servers with write tools must build a
-// stateful handler, mcp.StreamableHTTPOptions{Stateless: false, JSONResponse:
-// false}, which keeps the initialized session (Mcp-Session-Id) and serves the
-// GET SSE stream so server->client elicitation can be delivered; an optional
-// EventStore aids stream resumption. Read-only servers can use {Stateless: true,
-// JSONResponse: true}, the only mode that scales horizontally without session
-// affinity.
+// The handler's mcp.StreamableHTTPOptions are the caller's choice, and that
+// choice decides which MCP protocol a session negotiates. With Stateless: true
+// the SDK speaks 2026-07-28; with Stateless: false it falls back to the legacy
+// initialize handshake, which caps the negotiated version at 2025-11-25.
+// JSONResponse does not affect the negotiation.
 //
-// Only Stateless: false is strictly required for elicitation (it retains the
-// capability and permits server->client requests); JSONResponse: false is the
-// robust companion, letting the elicitation ride the in-flight POST's own SSE
-// stream rather than depending on the client holding a standalone GET stream
-// open. Stateful sessions live in-process in the SDK transport, so multi-replica
-// deployments need session affinity (sticky routing).
+// Elicitation-gated write tools (toolkit.AddWrite / registry.Write) are served
+// in both modes, by different mechanisms. On 2026-07-28 the confirmation is a
+// multi-round-trip request (SEP-2322): the server answers with an input-required
+// result and the client retries, so nothing is held between the two passes. On
+// the legacy protocol the SDK's server-side shim elicits over the live session
+// instead — which is the path that needs one.
+//
+// Prefer mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}. It
+// serves write tools, scales horizontally without session affinity, and is the
+// only mode in which the SDK's client-side result caching (ttlMs, SEP-2549) is
+// active. Reach for Stateless: false only to serve clients predating 2026-07-28
+// — they cannot retry, and the shim's server->client elicitation is unavailable
+// in stateless mode — or for an EventStore aiding stream resumption. Stateful
+// sessions live in-process in the SDK transport, so multi-replica deployments
+// on that path need session affinity (sticky routing).
 //
 // # Errors
 //
