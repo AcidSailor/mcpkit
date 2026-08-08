@@ -70,7 +70,7 @@ func TestAddWrite_StatelessHTTP(t *testing.T) {
 		Arguments: map[string]any{"msg": "hi"},
 	})
 	require.NoError(t, err)
-	require.False(t, res.IsError, errorTextOrEmpty(res))
+	require.False(t, res.IsError, errorText(res))
 	assert.True(t, called, "a stateless handler must serve gated writes")
 	assert.Equal(t, "confirm?", prompted, "the prompt must reach the client")
 }
@@ -88,7 +88,7 @@ func TestAddWrite_StatelessHTTPNoElicitation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, res.IsError, "no capability must not silently write")
-	assert.Contains(t, errorText(t, res), elicit.ErrNoElicitation.Error())
+	assert.Contains(t, errorText(res), elicit.ErrNoElicitation.Error())
 	assert.False(t, called, "the write must not run")
 }
 
@@ -106,5 +106,5 @@ func TestAddRead_StatelessHTTP(t *testing.T) {
 		Arguments: map[string]any{"msg": "hi"},
 	})
 	require.NoError(t, err)
-	require.False(t, res.IsError, errorTextOrEmpty(res))
+	require.False(t, res.IsError, errorText(res))
 }

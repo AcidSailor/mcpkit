@@ -138,23 +138,25 @@ func (t Tool[In, Out]) wrap(err error) error {
 	return fmt.Errorf("%s: %w", t.name, err)
 }
 
+// wrapHandler names the tool in every error the registered handler returns,
+// so the wrap happens once, at the boundary, for custom handlers too.
+func (t Tool[In, Out]) wrapHandler(
+	h mcp.ToolHandlerFor[In, Out],
+) mcp.ToolHandlerFor[In, Out] {
+	return func(
+		ctx context.Context,
+		req *mcp.CallToolRequest,
+		in In,
+	) (*mcp.CallToolResult, Out, error) {
+		res, out, err := h(ctx, req, in)
+		return res, out, t.wrap(err)
+	}
+}
+
 // validate runs the optional validator on decoded input.
 func (t Tool[In, Out]) validate(ctx context.Context, in In) error {
 	if t.validateFunc == nil {
 		return nil
 	}
 	return t.validateFunc(ctx, in)
-}
-
-// callValidated runs the validator then the call; wraps errs with the name.
-func (t Tool[In, Out]) callValidated(
-	ctx context.Context,
-	in In,
-) (Out, error) {
-	var out Out
-	if err := t.validate(ctx, in); err != nil {
-		return out, t.wrap(err)
-	}
-	out, err := t.callFunc(ctx, in)
-	return out, t.wrap(err)
 }

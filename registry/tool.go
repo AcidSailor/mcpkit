@@ -90,21 +90,14 @@ func build[In, Out any](
 	for _, opt := range opts {
 		opt(&o)
 	}
-	t := toolkit.New(s, name, description, in, call)
-	if o.output != nil {
-		t = t.WithOutputSchema(o.output)
-	}
-	if o.validate != nil {
-		t = t.WithValidateFunc(o.validate)
-	}
-	if o.elicit != nil {
-		t = t.WithElicitParamsFunc(o.elicit)
-	}
+	// Only annotations need a guard: the rest are zero-valued when unset.
+	t := toolkit.New(s, name, description, in, call).
+		WithOutputSchema(o.output).
+		WithValidateFunc(o.validate).
+		WithElicitParamsFunc(o.elicit).
+		WithGateID(o.gateID)
 	if o.annotations != nil {
 		t = t.WithAnnotations(*o.annotations)
-	}
-	if o.gateID != "" {
-		t = t.WithGateID(o.gateID)
 	}
 	return t
 }

@@ -65,9 +65,10 @@ its **own sentinels** in its `errors.go` (e.g. `server.ErrInvalidTransport`,
 entry point wraps its sentinel with detail via `fmt.Errorf("%w: …", ErrX, …)`,
 preserving it for `errors.Is`. When adding an error path: declare the sentinel
 in that package's `errors.go`, wrap it with `%w` plus context at the boundary,
-and don't introduce a cross-package umbrella. Every `toolkit` handler path wraps
-its errors with the tool name via `%w` (`Tool.wrap`), so a `validate`/`elicit`
-sentinel raised inside a tool stays matchable after registration.
+and don't introduce a cross-package umbrella. `toolkit` wraps the handler at
+registration (`AddReadFunc`/`AddWriteFunc`), custom handlers included, so every
+error carries the tool name via `%w` and a `validate`/`elicit` sentinel raised
+inside a tool stays matchable.
 
 ### `server`
 

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/acidsailor/mcpkit/elicit"
+	"github.com/acidsailor/mcpkit/mcptest"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
@@ -49,36 +50,12 @@ func toolError(err error) *mcp.CallToolResult {
 	return &r
 }
 
-func session(
-	t *testing.T,
-	s *mcp.Server,
-	h func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error),
-) *mcp.ClientSession {
-	t.Helper()
-	ct, st := mcp.NewInMemoryTransports()
-	ctx := context.Background()
-	go func() {
-		if _, err := s.Connect(ctx, st, nil); err != nil {
-			t.Errorf("server connect: %v", err)
-		}
-	}()
-	var opts *mcp.ClientOptions
-	if h != nil {
-		opts = &mcp.ClientOptions{ElicitationHandler: h}
-	}
-	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, opts).
-		Connect(ctx, ct, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = cs.Close() })
-	return cs
-}
-
 // gateServer wires a fresh server and session answering with action.
 func gateServer(t *testing.T, action, gateID string) *mcp.ClientSession {
 	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, gateID)
-	return session(
+	return mcptest.NewSessionWithElicitation(
 		t,
 		s,
 		func(
@@ -153,7 +130,7 @@ func TestAskNoElicitationCapability(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
 
-	cs := session(t, s, nil) // no handler → no elicitation capability
+	cs := mcptest.NewSession(t, s) // no handler → no elicitation capability
 
 	res, err := callGate(t, cs)
 	require.NoError(t, err)
@@ -169,7 +146,7 @@ func TestGateClientHandlerFails(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
 
-	cs := session(
+	cs := mcptest.NewSessionWithElicitation(
 		t,
 		s,
 		func(

@@ -26,36 +26,61 @@ func writeServer(t *testing.T, called *bool) *mcp.Server {
 	return s
 }
 
-func TestAddWrite_NoElicitationCapability(t *testing.T) {
-	s := writeServer(t, nil)
-	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+// answering replies to every confirmation with action.
+func answering(action string) func(
+	context.Context, *mcp.ElicitRequest,
+) (*mcp.ElicitResult, error) {
+	return func(
+		_ context.Context,
+		_ *mcp.ElicitRequest,
+	) (*mcp.ElicitResult, error) {
+		return &mcp.ElicitResult{Action: action}, nil
+	}
+}
+
+// callDo drives the "do" tool with a single string argument.
+func callDo(
+	t *testing.T,
+	cs *mcp.ClientSession,
+) (*mcp.CallToolResult, error) {
+	t.Helper()
+	return cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "do",
 		Arguments: map[string]any{"msg": "hi"},
 	})
+}
+
+// errorText renders a result's first text block, or "" — for asserting which
+// sentinel surfaced and for failure messages.
+func errorText(res *mcp.CallToolResult) string {
+	if len(res.Content) == 0 {
+		return ""
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return ""
+	}
+	return tc.Text
+}
+
+func TestAddWrite_NoElicitationCapability(t *testing.T) {
+	s := writeServer(t, nil)
+	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(
 		t,
 		res.IsError,
 		"missing elicitation capability is a tool error",
 	)
-	assert.Contains(t, errorText(t, res), ErrNoElicitation.Error())
+	assert.Contains(t, errorText(res), ErrNoElicitation.Error())
 }
 
 func TestAddWrite_Accept(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
-	cs := newTestMCPSessionWithElicitation(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "accept"}, nil
-		},
-	)
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	cs := newTestMCPSessionWithElicitation(t, s, answering("accept"))
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	require.False(t, res.IsError)
 	assert.True(t, called, "handler should run on accept")
@@ -64,51 +89,23 @@ func TestAddWrite_Accept(t *testing.T) {
 func TestAddWrite_Decline(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
-	cs := newTestMCPSessionWithElicitation(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "decline"}, nil
-		},
-	)
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	cs := newTestMCPSessionWithElicitation(t, s, answering("decline"))
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
 	assert.False(t, called, "handler must not run on decline")
-	assert.Contains(t, errorText(t, res), ErrUserDeclined.Error())
+	assert.Contains(t, errorText(res), ErrUserDeclined.Error())
 }
 
 func TestAddWrite_Cancel(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
-	cs := newTestMCPSessionWithElicitation(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "cancel"}, nil
-		},
-	)
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	cs := newTestMCPSessionWithElicitation(t, s, answering("cancel"))
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
 	assert.False(t, called, "handler must not run on cancel")
-	assert.Contains(t, errorText(t, res), ErrUserCanceled.Error())
-}
-
-// errorText returns the text of a tool result's first content block, for
-// asserting which sentinel surfaced.
-func errorText(t *testing.T, res *mcp.CallToolResult) string {
-	t.Helper()
-	require.Len(t, res.Content, 1)
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	return tc.Text
+	assert.Contains(t, errorText(res), ErrUserCanceled.Error())
 }
 
 func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
@@ -132,10 +129,7 @@ func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
 	)
 
 	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	require.False(t, res.IsError, "handler must run without elicitation")
 	assert.True(t, called, "custom handler should run")
@@ -156,15 +150,15 @@ func TestAddWrite_ValidateBeforeElicit(t *testing.T) {
 	cs := newTestMCPSessionWithElicitation(
 		t,
 		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		func(
+			ctx context.Context,
+			req *mcp.ElicitRequest,
+		) (*mcp.ElicitResult, error) {
 			elicited = true
-			return &mcp.ElicitResult{Action: "accept"}, nil
+			return answering("accept")(ctx, req)
 		},
 	)
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
 	assert.False(t, elicited, "validation must run before elicitation")
@@ -185,41 +179,12 @@ func TestAddWrite_TwoPasses(t *testing.T) {
 		}).
 		WithElicitParamsFunc(elicit.SimpleConfirmation[echoIn]("confirm?")))
 
-	cs := newTestMCPSessionWithElicitation(
-		t,
-		s,
-		func(_ context.Context, _ *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-			return &mcp.ElicitResult{Action: "accept"}, nil
-		},
-	)
-	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
+	cs := newTestMCPSessionWithElicitation(t, s, answering("accept"))
+	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	require.False(t, res.IsError)
 	assert.Equal(t, 2, validated, "validator runs on both passes")
 	assert.Equal(t, 1, called, "the write runs once")
-}
-
-// acceptor answers every confirmation with accept.
-func acceptor(
-	_ context.Context,
-	_ *mcp.ElicitRequest,
-) (*mcp.ElicitResult, error) {
-	return &mcp.ElicitResult{Action: "accept"}, nil
-}
-
-// callDo drives the "do" tool with a single string argument.
-func callDo(
-	t *testing.T,
-	cs *mcp.ClientSession,
-) (*mcp.CallToolResult, error) {
-	t.Helper()
-	return cs.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "do",
-		Arguments: map[string]any{"msg": "hi"},
-	})
 }
 
 // A prompt builder that fails aborts the call before it asks or writes.
@@ -245,13 +210,13 @@ func TestAddWrite_ElicitParamsError(t *testing.T) {
 			req *mcp.ElicitRequest,
 		) (*mcp.ElicitResult, error) {
 			elicited = true
-			return acceptor(ctx, req)
+			return answering("accept")(ctx, req)
 		},
 	)
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(t, res.IsError)
-	assert.Contains(t, errorText(t, res), "do: cannot describe")
+	assert.Contains(t, errorText(res), "do: cannot describe")
 	assert.False(t, elicited, "a failed prompt must not reach the client")
 	assert.False(t, called, "the write must not run")
 }
@@ -275,11 +240,11 @@ func TestAddWrite_ValidateFailsOnSecondPass(t *testing.T) {
 		}).
 		WithElicitParamsFunc(elicit.SimpleConfirmation[echoIn]("confirm?")))
 
-	cs := newTestMCPSessionWithElicitation(t, s, acceptor)
+	cs := newTestMCPSessionWithElicitation(t, s, answering("accept"))
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(t, res.IsError, "a stale confirmation must not write")
-	assert.Contains(t, errorText(t, res), "state changed since the prompt")
+	assert.Contains(t, errorText(res), "state changed since the prompt")
 	assert.False(t, called, "the write must not run")
 }
 
@@ -295,10 +260,10 @@ func TestAddWrite_CustomGateID(t *testing.T) {
 		WithGateID("acme/confirm").
 		WithElicitParamsFunc(elicit.SimpleConfirmation[echoIn]("confirm?")))
 
-	cs := newTestMCPSessionWithElicitation(t, s, acceptor)
+	cs := newTestMCPSessionWithElicitation(t, s, answering("accept"))
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
-	require.False(t, res.IsError, errorTextOrEmpty(res))
+	require.False(t, res.IsError, errorText(res))
 	assert.True(t, called, "a custom gate id must complete both passes")
 }
 
@@ -316,16 +281,16 @@ func TestAddWrite_DefaultPrompt(t *testing.T) {
 		t,
 		s,
 		func(
-			_ context.Context,
+			ctx context.Context,
 			req *mcp.ElicitRequest,
 		) (*mcp.ElicitResult, error) {
 			got = req.Params
-			return &mcp.ElicitResult{Action: "accept"}, nil
+			return answering("accept")(ctx, req)
 		},
 	)
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
-	require.False(t, res.IsError, errorTextOrEmpty(res))
+	require.False(t, res.IsError, errorText(res))
 
 	require.NotNil(t, got, "an ungated-looking write must still prompt")
 	assert.Equal(t, "Run do?", got.Message)
@@ -356,22 +321,10 @@ func TestAddWrite_SuppliedAnswerSkipsAsk(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.False(t, res.IsError, errorTextOrEmpty(res))
+	require.False(t, res.IsError, errorText(res))
 	assert.True(
 		t,
 		called,
 		"a supplied answer is trusted verbatim; the gate is not authorization",
 	)
-}
-
-// errorTextOrEmpty renders a result's first text block, for failure messages.
-func errorTextOrEmpty(res *mcp.CallToolResult) string {
-	if len(res.Content) == 0 {
-		return ""
-	}
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	if !ok {
-		return ""
-	}
-	return tc.Text
 }

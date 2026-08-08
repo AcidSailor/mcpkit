@@ -26,7 +26,7 @@ func AddReadFunc[In, Out any](
 	mcp.AddTool(
 		t.server,
 		t.mcpTool(true),
-		callFunc,
+		t.wrapHandler(callFunc),
 	)
 }
 
@@ -37,6 +37,10 @@ func (t Tool[In, Out]) Call(
 	_ *mcp.CallToolRequest,
 	in In,
 ) (*mcp.CallToolResult, Out, error) {
-	out, err := t.callValidated(ctx, in)
+	var out Out
+	if err := t.validate(ctx, in); err != nil {
+		return nil, out, err
+	}
+	out, err := t.callFunc(ctx, in)
 	return nil, out, err
 }

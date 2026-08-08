@@ -59,9 +59,9 @@
 //
 // toolkit re-exports the elicit sentinels (ErrUserDeclined, ErrUserCanceled,
 // ErrNoElicitation, ErrUnexpectedElicitAction, ErrElicitationFailed) so callers
-// need not import elicit. Every handler path wraps its errors with the tool
-// name via %w (Tool.wrap), so a validate/elicit sentinel raised inside a tool
-// stays matchable after registration.
+// need not import elicit. Registration wraps the handler, custom ones
+// included, so every error carries the tool name via %w and a validate/elicit
+// sentinel raised inside a tool stays matchable.
 //
 // InputSchema[In]() reflects a schema from a plain Go struct via jsonschema.For,
 // panicking on failure like mcp.AddTool does. Tool is a value type — builder

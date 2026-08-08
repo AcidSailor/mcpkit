@@ -20,7 +20,7 @@ func AddWriteFunc[In, Out any](
 	mcp.AddTool(
 		t.server,
 		t.mcpTool(false),
-		callFunc,
+		t.wrapHandler(callFunc),
 	)
 }
 
@@ -40,10 +40,9 @@ func (t Tool[In, Out]) Gate(
 		return res, zero, err
 	}
 	if err := elicit.Decide(resp); err != nil {
-		return nil, zero, t.wrap(err)
+		return nil, zero, err
 	}
-	out, err := t.callValidated(ctx, in)
-	return nil, out, err
+	return t.Call(ctx, req, in)
 }
 
 // ask validates in, then builds the confirmation the client must fulfill.
@@ -53,7 +52,7 @@ func (t Tool[In, Out]) ask(
 	in In,
 ) (*mcp.CallToolResult, error) {
 	if err := t.validate(ctx, in); err != nil {
-		return nil, t.wrap(err)
+		return nil, err
 	}
 	build := t.elicitParamsFunc
 	if build == nil {
@@ -61,11 +60,7 @@ func (t Tool[In, Out]) ask(
 	}
 	params, err := build(ctx, in)
 	if err != nil {
-		return nil, t.wrap(err)
+		return nil, err
 	}
-	res, err := elicit.Ask(t.gate(), session, params)
-	if err != nil {
-		return nil, t.wrap(err)
-	}
-	return res, nil
+	return elicit.Ask(t.gate(), session, params)
 }

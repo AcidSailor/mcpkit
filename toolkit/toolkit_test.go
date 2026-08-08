@@ -43,7 +43,7 @@ func TestBuilderStoresFields(t *testing.T) {
 }
 
 // A validator's sentinel must stay matchable through the pipeline (errors.Is).
-func TestRunValidatedPreservesValidateSentinel(t *testing.T) {
+func TestCallPreservesValidateSentinel(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
 			return echoOut{Echo: in.Msg}, nil
@@ -52,7 +52,7 @@ func TestRunValidatedPreservesValidateSentinel(t *testing.T) {
 			return validate.ErrEmpty
 		})
 
-	_, err := tl.callValidated(context.Background(), echoIn{})
+	_, _, err := tl.Call(context.Background(), nil, echoIn{})
 	require.ErrorIs(t, err, validate.ErrEmpty)
 }
 
