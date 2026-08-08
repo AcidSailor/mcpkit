@@ -2,24 +2,13 @@ package toolkit
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AddRead registers a read-only tool; panics if an elicit prompt was set.
+// AddRead registers a read-only tool; panics if gate config was set.
 func AddRead[In, Out any](t Tool[In, Out]) {
-	AddReadFunc(
-		t,
-		func(
-			ctx context.Context,
-			_ *mcp.CallToolRequest,
-			in In,
-		) (*mcp.CallToolResult, Out, error) {
-			out, err := t.runValidated(ctx, in, nil)
-			return nil, out, err
-		},
-	)
+	AddReadFunc(t, t.Call)
 }
 
 // AddReadFunc registers a read-only tool running callFunc as-is, unvalidated.
@@ -28,24 +17,30 @@ func AddReadFunc[In, Out any](
 	callFunc mcp.ToolHandlerFor[In, Out],
 ) {
 	if t.elicitParamsFunc != nil {
-		panic(
-			fmt.Errorf(
-				"%s: elicitation set on a read-only tool",
-				t.name,
-			),
-		)
+		panic(t.wrap(ErrElicitOnRead))
 	}
-	tool := t.mcpTool(
-		&mcp.ToolAnnotations{
-			ReadOnlyHint:    true,
-			IdempotentHint:  true,
-			DestructiveHint: new(false),
-		},
-	)
+	if t.gateID != "" {
+		panic(t.wrap(ErrGateIDOnRead))
+	}
 
 	mcp.AddTool(
 		t.server,
-		tool,
-		callFunc,
+		t.mcpTool(true),
+		t.wrapHandler(callFunc),
 	)
+}
+
+// Call runs the validator then the call func, shaped as a tool handler so a
+// custom handler passed to AddReadFunc / AddWriteFunc can reuse it.
+func (t Tool[In, Out]) Call(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in In,
+) (*mcp.CallToolResult, Out, error) {
+	var out Out
+	if err := t.validate(ctx, in); err != nil {
+		return nil, out, err
+	}
+	out, err := t.callFunc(ctx, in)
+	return nil, out, err
 }

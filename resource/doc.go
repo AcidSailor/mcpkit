@@ -28,7 +28,8 @@
 //
 // Sentinels (errors.go) follow the repo convention. ErrNotFound and
 // ErrTemplateMismatch are return-side sentinels: returning either from a read
-// func yields mcp.ResourceNotFoundError (CodeResourceNotFound) on the wire.
+// func yields mcp.ResourceNotFoundError on the wire (jsonrpc.CodeInvalidParams
+// since SDK v1.7.0, previously -32002).
 // Cross-transport errors.Is is not promised. ErrInvalidVars wraps a failed
 // Vars.Int conversion. ErrNoContent is returned when a read func produces no
 // content (a nil Content or an empty Raw), surfaced as a real error rather than

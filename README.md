@@ -94,8 +94,9 @@ func main() {
         }),
     )
 
-    // A write tool, gated by MCP elicitation. The client must support
-    // elicitation and accept the prompt before the call runs.
+    // A write tool, gated by MCP elicitation: the client must support
+    // elicitation and accept the prompt before the call runs. The gate
+    // prompts a human; it is not an authorization boundary (see elicit).
     toolkit.AddWrite(
         toolkit.New(
             mcpServer,
@@ -111,12 +112,13 @@ func main() {
     )
 
     // The HTTP and Both transports serve a caller-built *http.Server as-is.
-    // Build the Handler with mcp.NewStreamableHTTPHandler (optionally wrapped or
-    // muxed). This server has a write tool, so the handler must be stateful — a
-    // stateless one can't deliver the server->client elicitation request.
+    // Build the Handler with mcp.NewStreamableHTTPHandler (optionally wrapped
+    // or muxed). Stateless serves write tools to 2026-07-28 clients (the
+    // confirmation is a multi round-trip request); older ones need stdio or
+    // a stateful handler.
     handler := mcp.NewStreamableHTTPHandler(
         func(*http.Request) *mcp.Server { return mcpServer },
-        &mcp.StreamableHTTPOptions{Stateless: false, JSONResponse: false},
+        &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
     )
     srv := server.New(
         mcpServer,

@@ -9,8 +9,10 @@ import (
 // Package sentinels, following the repo convention (no umbrella sentinel).
 //
 // ErrNotFound and ErrTemplateMismatch are return-side sentinels: a read func
-// returning either yields mcp.ResourceNotFoundError (CodeResourceNotFound) on
-// the wire. Cross-transport errors.Is is not promised — the SDK serializes
+// returning either yields mcp.ResourceNotFoundError, whose code
+// (mcp.CodeResourceNotFound) since SDK v1.7.0 is jsonrpc.CodeInvalidParams
+// (-32602) rather than -32002; MCPGODEBUG=customresnotfounderrcode=1 restores
+// the old value. Cross-transport errors.Is is not promised — the SDK serializes
 // errors to a JSON-RPC code — same caveat as the elicit sentinels.
 var (
 	// ErrNotFound signals a resource (or templated instance) does not exist.
@@ -26,8 +28,8 @@ var (
 	ErrNoContent = errors.New("resource produced no content")
 )
 
-// toWireErr maps the not-found sentinels to the SDK's typed not-found error so
-// the client sees CodeResourceNotFound; other errors pass through unchanged.
+// toWireErr maps the not-found sentinels to the SDK's typed not-found error;
+// other errors pass through unchanged.
 func toWireErr(uri string, err error) error {
 	if err == nil {
 		return nil

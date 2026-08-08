@@ -78,6 +78,18 @@ func TestAddRead_PanicsWhenElicitSet(t *testing.T) {
 	})
 }
 
+// A gate id is dead config on a read; silently dropping it hides the mistake.
+func TestAddRead_PanicsWhenGateIDSet(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+	require.PanicsWithError(t, "echo: "+ErrGateIDOnRead.Error(), func() {
+		AddRead(New(s, "echo", "echoes", objectSchema(),
+			func(_ context.Context, in echoIn) (echoOut, error) {
+				return echoOut{Echo: in.Msg}, nil
+			}).
+			WithGateID("acme/confirm"))
+	})
+}
+
 func TestAddReadFunc_CustomHandler(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
