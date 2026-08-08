@@ -6,7 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AddRead registers a read-only tool; panics if an elicit prompt was set.
+// AddRead registers a read-only tool; panics if gate config was set.
 func AddRead[In, Out any](t Tool[In, Out]) {
 	AddReadFunc(t, t.Call)
 }
@@ -18,6 +18,9 @@ func AddReadFunc[In, Out any](
 ) {
 	if t.elicitParamsFunc != nil {
 		panic(t.wrap(ErrElicitOnRead))
+	}
+	if t.gateID != "" {
+		panic(t.wrap(ErrGateIDOnRead))
 	}
 
 	mcp.AddTool(

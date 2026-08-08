@@ -15,6 +15,15 @@ type ParamsFunc[In any] func(
 // DescribeFunc renders a confirmation message from a decoded In request.
 type DescribeFunc[In any] func(ctx context.Context, in In) (string, error)
 
+// emptyObject is the schema a fieldless confirmation must carry: clients
+// reject an omitted requestedSchema.properties (e.g. Claude Code).
+func emptyObject() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:       "object",
+		Properties: map[string]*jsonschema.Schema{},
+	}
+}
+
 func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 	return func(ctx context.Context, in In) (*mcp.ElicitParams, error) {
 		message, err := describe(ctx, in)
@@ -22,13 +31,8 @@ func confirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 			return nil, err
 		}
 		return &mcp.ElicitParams{
-			Message: message,
-			// Properties must be a non-nil empty map: clients reject an
-			// omitted requestedSchema.properties (e.g. Claude Code).
-			RequestedSchema: &jsonschema.Schema{
-				Type:       "object",
-				Properties: map[string]*jsonschema.Schema{},
-			},
+			Message:         message,
+			RequestedSchema: emptyObject(),
 		}, nil
 	}
 }

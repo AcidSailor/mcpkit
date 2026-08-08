@@ -34,13 +34,14 @@ func WithElicitFunc[In any](f toolkit.ElicitParamsFunc[In]) Option[In] {
 	return func(o *options[In]) { o.elicit = f }
 }
 
-// WithToolAnnotations sets the tool's hints; ReadOnlyHint is set by Read/Write.
-// Named apart from WithAnnotations, which carries a resource's mcp.Annotations.
+// WithToolAnnotations sets the tool's hints, used verbatim; ReadOnlyHint must
+// match Read/Write or Bind panics. Named apart from WithAnnotations, which
+// carries a resource's mcp.Annotations.
 func WithToolAnnotations[In any](a mcp.ToolAnnotations) Option[In] {
 	return func(o *options[In]) { o.annotations = &a }
 }
 
-// WithGateID overrides the key naming a write tool's confirmation request.
+// WithGateID overrides a write tool's confirmation key; on Read panics at Bind.
 func WithGateID[In any](id string) Option[In] {
 	return func(o *options[In]) { o.gateID = id }
 }

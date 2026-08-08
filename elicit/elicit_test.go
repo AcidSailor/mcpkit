@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gateTool registers the two-pass gate: ask on the first call, act on the retry.
+// gateTool registers the two-pass gate: ask on the first call, act on retry.
 func gateTool(s *mcp.Server, gateID string) {
 	s.AddTool(
 		&mcp.Tool{
@@ -188,4 +188,21 @@ func TestGateClientHandlerFails(t *testing.T) {
 func TestDecideRejectsNonElicitResponse(t *testing.T) {
 	err := elicit.Decide(nil)
 	require.ErrorIs(t, err, elicit.ErrElicitationFailed)
+}
+
+// A typed-nil result must not dereference: Decide is exported, and a panic in
+// a tool handler is a process kill (the SDK does not recover).
+func TestDecideRejectsTypedNilResult(t *testing.T) {
+	require.NotPanics(t, func() {
+		err := elicit.Decide((*mcp.ElicitResult)(nil))
+		require.ErrorIs(t, err, elicit.ErrElicitationFailed)
+	})
+}
+
+// Ask is exported, so a nil session is its own error, not an SDK panic.
+func TestAskNilSession(t *testing.T) {
+	require.NotPanics(t, func() {
+		_, err := elicit.Ask(elicit.GateID, nil, nil)
+		require.ErrorIs(t, err, elicit.ErrNoElicitation)
+	})
 }

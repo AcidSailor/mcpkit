@@ -104,7 +104,22 @@ func TestAnnotateReturnsCallerHintsVerbatim(t *testing.T) {
 		}).
 		WithAnnotations(a)
 
-	require.Equal(t, &a, tl.annotate(true))
+	got := tl.annotate(true)
+	require.Equal(t, &a, got)
+	require.NotSame(t, &a, got, "annotate must hand back its own copy")
+}
+
+// The contradiction panics at registration, not only in annotate: AddRead and
+// AddWrite must actually route through it.
+func TestAddReadPanicsOnContradictingAnnotations(t *testing.T) {
+	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
+	require.PanicsWithError(t, "n: "+ErrReadOnlyMismatch.Error(), func() {
+		AddRead(New(s, "n", "d", objectSchema(),
+			func(_ context.Context, in echoIn) (echoOut, error) {
+				return echoOut{Echo: in.Msg}, nil
+			}).
+			WithAnnotations(mcp.ToolAnnotations{Title: "Look"}))
+	})
 }
 
 // Hints that contradict the access category are programmer errors.

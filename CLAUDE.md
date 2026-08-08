@@ -65,10 +65,9 @@ its **own sentinels** in its `errors.go` (e.g. `server.ErrInvalidTransport`,
 entry point wraps its sentinel with detail via `fmt.Errorf("%w: …", ErrX, …)`,
 preserving it for `errors.Is`. When adding an error path: declare the sentinel
 in that package's `errors.go`, wrap it with `%w` plus context at the boundary,
-and don't introduce a cross-package umbrella. `toolkit`'s shared handler
-pipeline (`runValidated`) wraps any validator/gate/call error with the tool name
-via `%w`, so a `validate`/`elicit` sentinel raised inside a tool stays matchable
-after registration.
+and don't introduce a cross-package umbrella. Every `toolkit` handler path wraps
+its errors with the tool name via `%w` (`Tool.wrap`), so a `validate`/`elicit`
+sentinel raised inside a tool stays matchable after registration.
 
 ### `server`
 
@@ -91,20 +90,25 @@ routes (health, metrics); a nil `Handler` returns `ErrNilHandler`, and a
 malformed `Addr` returns `ErrInvalidAddr`.
 
 The handler's `StreamableHTTPOptions` are the caller's choice, and that choice
-decides **which MCP protocol the session negotiates**: `Stateless: true` speaks
-`2026-07-28`, `Stateless: false` falls back to the legacy `initialize` handshake
-and is capped at `2025-11-25` (`JSONResponse` does not affect this).
-Elicitation-gated write tools (`toolkit.AddWrite` / `registry.Write`) are served
-in **both** modes by different mechanisms — on `2026-07-28` the confirmation is a
-multi-round-trip request (SEP-2322) needing no retained session, on the legacy
-protocol the SDK's server-side shim elicits over the live session. **Prefer
-`{Stateless: true, JSONResponse: true}`**: it serves write tools, scales
-horizontally without session affinity, and is the only mode where the SDK's
-client-side result caching (`ttlMs`, SEP-2549) is active. Reach for
-`Stateless: false` only to serve clients predating `2026-07-28` (they cannot
-retry, and the shim's server→client elicitation is unavailable when stateless)
-or for an `EventStore` aiding stream resumption; stateful sessions live
-in-process, so multi-replica deployments on that path need sticky routing. A
+**bounds** which MCP protocol a session can negotiate: `Stateless: true` is a
+*precondition* for `2026-07-28` (the SDK rejects new-protocol requests on a
+stateful handler), while `Stateless: false` caps every session at `2025-11-25`
+via the legacy `initialize` handshake. The client still picks within that bound,
+so a stateless handler serves **both** generations (`JSONResponse` does not
+affect this). Elicitation-gated write tools (`toolkit.AddWrite` /
+`registry.Write`) are served by a different mechanism per generation — on
+`2026-07-28` the confirmation is a multi-round-trip request (SEP-2322) needing
+no retained session, and the client's capabilities ride each request's `_meta`;
+on the legacy protocol the SDK's server-side shim elicits over the live session,
+so a **pre-`2026-07-28` client on a stateless handler gets
+`elicit.ErrNoElicitation`** and cannot run write tools at all. **Prefer
+`{Stateless: true, JSONResponse: true}`**: it serves write tools to current
+clients, scales horizontally without session affinity, and is the only mode
+where the SDK's client-side caching of **list** results (`ttlMs`, SEP-2549) is
+active (tool-call results are not cached). Reach for `Stateless: false` only to
+serve clients predating `2026-07-28` (they cannot retry, and the shim needs a
+live session) or for an `EventStore` aiding stream resumption; stateful sessions
+live in-process, so multi-replica deployments on that path need sticky routing. A
 non-nil `TLSConfig` makes it serve HTTPS via `ListenAndServeTLS` (the config must
 supply its own certificates). Only `WithShutdownTimeout` (the graceful-shutdown
 deadline, not an `http.Server` field) stays the package's concern.
@@ -123,17 +127,18 @@ nil). Chain optional config, then register:
 - `.WithGateID(id)` — overrides the confirmation's input-request key
   (`elicit.GateID` by default).
 - `AddRead(tool)` — registers a read-only tool.
-  **Panics** if an elicit-params func was set (meaningless for reads).
+  **Panics** if an elicit-params func or a gate id was set (both meaningless
+  for reads).
 - `AddWrite(tool)` — registers a state-mutating tool **gated by MCP
-  elicitation**: the client must support elicitation (else
+  elicitation**: asking requires the client to support elicitation (else
   `ErrNoElicitation`); the call runs only on an `accept` action
-  (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`).
+  (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`). Without
+  `WithElicitParamsFunc` it still asks, with a default `Run <name>?` prompt.
 
 **Annotations.** Two paths, no merging. Without `WithAnnotations` a tool gets
 its category's defaults (read: read-only + idempotent; write: destructive +
-non-idempotent — the values both kinds hardcoded before the option existed).
-With it, the hints are the caller's to own **whole**: checked against the
-category, then used verbatim, nothing filled in. A write setting only a `Title`
+non-idempotent). With it, the hints are the caller's to own **whole**: checked
+against the category, then used verbatim, nothing filled in. A write setting only a `Title`
 therefore omits `destructiveHint`, which the spec already reads as `true`, so
 that omission is not a safety hole.
 
@@ -142,26 +147,37 @@ wraps the handler and, through `registry.Access`, whether `Enable.Write` binds
 the tool at all. Contradictions **panic at registration** (at `Bind` when going
 through `registry`), wrapped with the tool name: `ErrReadOnlyMismatch` when
 `ReadOnlyHint` disagrees with `AddRead`/`AddWrite`, `ErrDestructiveRead` for
-`DestructiveHint` on a read.
+`DestructiveHint` **true** on a read (`new(false)` is fine — it is the read
+default).
 
 Consequence of the SDK's types: `ReadOnlyHint` is a plain `bool`, so a **read**
 passing annotations must spell out `ReadOnlyHint: true` — an unset one is
 indistinguishable from an explicit `false` and is rejected rather than silently
-corrected. `toolkit/errors.go` holds these sentinels plus `ErrElicitOnRead` and
-the `elicit` re-exports.
+corrected. `toolkit/errors.go` holds these sentinels plus `ErrElicitOnRead`,
+`ErrGateIDOnRead`, and the `elicit` re-exports.
 
 A gated write **runs its handler twice** per call — once to ask (`elicit.Ask`
 returns an input-required result), once to act after the client retries with the
-answer (`elicit.Response` + `elicit.Decide`). The validator therefore runs on
-both passes and **must be side-effect free**; `callFunc` runs only on the second.
+answer (read off `req.Params.InputResponses[gateID]`, then `elicit.Decide`). The
+validator therefore runs on both passes and **must be side-effect free**;
+`callFunc` runs only on the second.
+
+**The gate is not an authorization boundary.** A call arriving with an answer
+already under the gate id skips the ask entirely, so it proves a confirmation
+was *reported*, never that one was requested or shown; `RequestState` is left
+unsigned, so the retry's arguments are not bound to the ask either. Deliberate —
+the client renders the prompt, so a hostile one owns the answer regardless. See
+`elicit/doc.go`.
 
 `AddReadFunc(tool, callFunc)` / `AddWriteFunc(tool, callFunc)` are the
 lower-level variants that register a custom `mcp.ToolHandlerFor[In, Out]` as-is
 (keeping the Read/Write annotations): `AddReadFunc` skips input validation,
-`AddWriteFunc` runs ungated (no elicitation). `AddRead`/`AddWrite` are built on
+`AddWriteFunc` runs whatever it is given. `AddRead`/`AddWrite` are built on
 them, passing the two exported default handlers — `Call` (validate, then call)
 and `Gate` (the two-pass confirmation) — which a custom handler can wrap to keep
-validation or gating instead of reimplementing either.
+validation or gating instead of reimplementing either; a handler wrapping
+neither is ungated. Bind the method value **after** the chain is complete: it
+captures the builder as it was.
 
 `toolkit` re-exports the `elicit` sentinels (`ErrUserDeclined`,
 `ErrUserCanceled`, `ErrNoElicitation`, `ErrUnexpectedElicitAction`,

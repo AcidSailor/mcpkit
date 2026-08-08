@@ -25,7 +25,9 @@ func AddWriteFunc[In, Out any](
 }
 
 // Gate asks for confirmation on the first pass and calls on the retry; its
-// shape is mcp.ToolHandlerFor, so a custom handler can wrap it.
+// shape is mcp.ToolHandlerFor, so a custom handler can wrap it. A call whose
+// arguments already carry an answer under the gate id skips the ask entirely
+// — the gate is not an authorization boundary (see package elicit).
 func (t Tool[In, Out]) Gate(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -53,13 +55,13 @@ func (t Tool[In, Out]) ask(
 	if err := t.validate(ctx, in); err != nil {
 		return nil, t.wrap(err)
 	}
-	var params *mcp.ElicitParams
-	if t.elicitParamsFunc != nil {
-		p, err := t.elicitParamsFunc(ctx, in)
-		if err != nil {
-			return nil, t.wrap(err)
-		}
-		params = p
+	build := t.elicitParamsFunc
+	if build == nil {
+		build = elicit.SimpleConfirmation[In]("Run " + t.name + "?")
+	}
+	params, err := build(ctx, in)
+	if err != nil {
+		return nil, t.wrap(err)
 	}
 	res, err := elicit.Ask(t.gate(), session, params)
 	if err != nil {

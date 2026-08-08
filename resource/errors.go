@@ -9,10 +9,11 @@ import (
 // Package sentinels, following the repo convention (no umbrella sentinel).
 //
 // ErrNotFound and ErrTemplateMismatch are return-side sentinels: a read func
-// returning either yields mcp.ResourceNotFoundError, which since SDK v1.7.0
-// carries jsonrpc.CodeInvalidParams on the wire. Cross-transport errors.Is is
-// not promised — the SDK serializes errors to a JSON-RPC code — same caveat as
-// the elicit sentinels.
+// returning either yields mcp.ResourceNotFoundError, whose code
+// (mcp.CodeResourceNotFound) since SDK v1.7.0 is jsonrpc.CodeInvalidParams
+// (-32602) rather than -32002; MCPGODEBUG=customresnotfounderrcode=1 restores
+// the old value. Cross-transport errors.Is is not promised — the SDK serializes
+// errors to a JSON-RPC code — same caveat as the elicit sentinels.
 var (
 	// ErrNotFound signals a resource (or templated instance) does not exist.
 	ErrNotFound = errors.New("resource not found")

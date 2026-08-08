@@ -14,8 +14,7 @@
 //
 // Decide also rejects a response that is not an elicitation result, with
 // ErrElicitationFailed. Only the action gates the call; returned field values
-// are not inspected. Ask still requires the client to advertise the elicitation
-// capability, returning ErrNoElicitation when it does not.
+// are not inspected.
 //
 // # The handler runs twice
 //
@@ -26,18 +25,38 @@
 // The SDK bridges both client generations. A client on protocol 2026-07-28 or
 // later loops in its own middleware; an older one is served by a server-side
 // shim that elicits over the live session and re-invokes the handler. Either
-// way the model sees a single tool call, and the retry needs no session state —
-// which is why a stateless HTTP handler can now serve write tools (see package
-// server).
+// way the model sees a single tool call.
 //
-// # The confirmation is not bound to its arguments
+// # What the gate does and does not prove
 //
-// The retry carries its own arguments and mcpkit leaves the SDK's RequestState
-// unsigned, so nothing proves the retry's arguments are the ones the user was
-// shown. A buggy client or a tampering intermediary could swap them. This is
-// deliberate: a hostile client can misreport the answer regardless, being the
-// party that renders the prompt, and a destructive tool that is not idempotent
-// should carry its own idempotency key rather than lean on the gate.
+// Ask requires the client to advertise the elicitation capability, returning
+// ErrNoElicitation when it does not — but that check runs on the ask alone. A
+// call arriving with an input response already under the gate id skips Ask
+// entirely and proceeds. The gate therefore proves that a confirmation was
+// reported, never that one was requested, rendered, or seen.
+//
+// mcpkit also leaves the SDK's RequestState unsigned, so nothing binds a retry
+// to its ask: the retry carries its own arguments and its own answer, both
+// taken at face value. This is deliberate. The client renders the prompt, so a
+// hostile one owns the answer whatever the server does; a destructive tool that
+// is not idempotent should carry its own idempotency key rather than lean on
+// the gate. A server that cannot trust its client needs authentication above
+// mcpkit, not a stronger gate. The gate is a guard against an honest client's
+// mistakes and a prompt for a human — not an authorization boundary.
+//
+// # Transports
+//
+// A stateless HTTP handler serves gated writes to clients on protocol
+// 2026-07-28 or later: their capabilities ride each request's _meta, and the
+// retry needs no session state. A pre-2026-07-28 client on a stateless handler
+// gets ErrNoElicitation instead — the SDK's per-request session carries no
+// capabilities, and the shim has no live session to elicit over. Serve those
+// clients over stdio or a stateful handler (see package server).
+//
+// A fulfilment failure — the client's handler erroring, or the SDK's retry cap
+// being hit — surfaces as a failed call rather than ErrElicitationFailed,
+// since the SDK owns that round trip. ErrElicitationFailed now marks only a
+// response that is not an elicitation result.
 //
 // The sentinels live in errors.go; toolkit re-exports them so callers need not
 // import elicit directly.

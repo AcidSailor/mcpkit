@@ -2,11 +2,13 @@ package registry_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/acidsailor/mcpkit/elicit"
 	"github.com/acidsailor/mcpkit/mcptest"
 	"github.com/acidsailor/mcpkit/registry"
 	"github.com/acidsailor/mcpkit/toolkit"
@@ -154,6 +156,94 @@ func TestReadOnlyHintOnWritePanicsAtBind(t *testing.T) {
 		func() {
 			registry.New([]registry.Registration{w}).
 				Bind(srv, registry.Enable{Write: true})
+		},
+	)
+}
+
+// WithOutputSchema and WithValidateFunc must survive Bind: the schema reaches
+// the wire, and the validator can fail the call.
+func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
+	r := registry.Read(
+		"echo", "", toolkit.InputSchema[echoIn](), echo,
+		registry.WithOutputSchema[echoIn](toolkit.InputSchema[echoOut]()),
+		registry.WithValidateFunc(
+			func(_ context.Context, in echoIn) error {
+				if in.Msg == "" {
+					return errors.New("msg is required")
+				}
+				return nil
+			},
+		),
+	)
+
+	srv := newServer(t)
+	registry.New([]registry.Registration{r}).Bind(srv, registry.Enable{})
+	cs := mcptest.NewSession(t, srv)
+
+	list, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, list.Tools, 1)
+	require.NotNil(t, list.Tools[0].OutputSchema, "output schema must bind")
+
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "echo",
+		Arguments: map[string]any{"msg": ""},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "the validator must fail the call")
+}
+
+// The gate id must survive Bind and key the real confirmation round trip.
+func TestWithGateIDDrivesTheConfirmation(t *testing.T) {
+	called := false
+	w := registry.Write(
+		"w", "", toolkit.InputSchema[echoIn](),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			called = true
+			return echoOut(in), nil
+		},
+		registry.WithGateID[echoIn]("acme/confirm"),
+		registry.WithElicitFunc(
+			elicit.SimpleConfirmation[echoIn]("confirm?"),
+		),
+	)
+
+	srv := newServer(t)
+	registry.New([]registry.Registration{w}).
+		Bind(srv, registry.Enable{Write: true})
+
+	cs := mcptest.NewSessionWithElicitation(
+		t,
+		srv,
+		func(
+			_ context.Context,
+			_ *mcp.ElicitRequest,
+		) (*mcp.ElicitResult, error) {
+			return &mcp.ElicitResult{Action: "accept"}, nil
+		},
+	)
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "w",
+		Arguments: map[string]any{"msg": "hi"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	require.True(t, called, "a custom gate id must complete both passes")
+}
+
+func TestWithGateIDOnReadPanicsAtBind(t *testing.T) {
+	r := registry.Read(
+		"bad", "", toolkit.InputSchema[echoIn](), echo,
+		registry.WithGateID[echoIn]("acme/confirm"),
+	)
+
+	srv := newServer(t)
+	require.PanicsWithError(
+		t,
+		"bad: "+toolkit.ErrGateIDOnRead.Error(),
+		func() {
+			registry.New([]registry.Registration{r}).
+				Bind(srv, registry.Enable{})
 		},
 	)
 }

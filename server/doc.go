@@ -24,26 +24,31 @@
 // # Stateless is the modern path
 //
 // The handler's mcp.StreamableHTTPOptions are the caller's choice, and that
-// choice decides which MCP protocol a session negotiates. With Stateless: true
-// the SDK speaks 2026-07-28; with Stateless: false it falls back to the legacy
-// initialize handshake, which caps the negotiated version at 2025-11-25.
-// JSONResponse does not affect the negotiation.
+// choice bounds which MCP protocol a session can negotiate. Stateless: true is
+// a precondition for 2026-07-28 — the SDK rejects new-protocol requests on a
+// stateful handler — while Stateless: false caps every session at 2025-11-25
+// via the legacy initialize handshake. The client still picks within that
+// bound, so a stateless handler serves both generations. JSONResponse does not
+// affect the negotiation.
 //
 // Elicitation-gated write tools (toolkit.AddWrite / registry.Write) are served
-// in both modes, by different mechanisms. On 2026-07-28 the confirmation is a
-// multi-round-trip request (SEP-2322): the server answers with an input-required
-// result and the client retries, so nothing is held between the two passes. On
-// the legacy protocol the SDK's server-side shim elicits over the live session
-// instead — which is the path that needs one.
+// by different mechanisms per generation. On 2026-07-28 the confirmation is a
+// multi-round-trip request (SEP-2322): the server answers with an input-needed
+// result and the client retries, so nothing is held between the two passes, and
+// the client's capabilities ride each request's _meta. On the legacy protocol
+// the SDK's server-side shim elicits over the live session instead — which is
+// the path that needs one, so a pre-2026-07-28 client on a stateless handler
+// gets elicit.ErrNoElicitation and cannot run write tools at all.
 //
 // Prefer mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}. It
-// serves write tools, scales horizontally without session affinity, and is the
-// only mode in which the SDK's client-side result caching (ttlMs, SEP-2549) is
-// active. Reach for Stateless: false only to serve clients predating 2026-07-28
-// — they cannot retry, and the shim's server->client elicitation is unavailable
-// in stateless mode — or for an EventStore aiding stream resumption. Stateful
-// sessions live in-process in the SDK transport, so multi-replica deployments
-// on that path need session affinity (sticky routing).
+// serves write tools to current clients, scales horizontally without session
+// affinity, and is the only mode in which the SDK's client-side caching of list
+// results (ttlMs, SEP-2549) is active; tool-call results are not cached. Reach
+// for Stateless: false only to serve clients predating 2026-07-28 — they cannot
+// retry, and the shim needs a live session — or for an EventStore aiding stream
+// resumption. Stateful sessions live in-process in the SDK transport, so
+// multi-replica deployments on that path need session affinity (sticky
+// routing).
 //
 // # Errors
 //

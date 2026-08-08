@@ -70,8 +70,8 @@ func (t Tool[In, Out]) WithElicitParamsFunc(
 	return t
 }
 
-// WithAnnotations sets the tool's hints. ReadOnlyHint is owned by the access
-// category (AddRead / AddWrite) and is overwritten here.
+// WithAnnotations sets the tool's hints, used verbatim. ReadOnlyHint must
+// match the access category (AddRead / AddWrite) or registration panics.
 func (t Tool[In, Out]) WithAnnotations(
 	a mcp.ToolAnnotations,
 ) Tool[In, Out] {
@@ -80,6 +80,8 @@ func (t Tool[In, Out]) WithAnnotations(
 }
 
 // WithGateID overrides the key naming the write tool's confirmation request.
+// Ask and read must agree on it: a handler reading under a different key never
+// sees the answer and re-asks until the SDK's retry cap. Panics on a read.
 func (t Tool[In, Out]) WithGateID(id string) Tool[In, Out] {
 	t.gateID = id
 	return t
