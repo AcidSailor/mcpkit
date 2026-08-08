@@ -9,9 +9,11 @@ import (
 
 // options holds the optional toolkit config captured by Read/Write.
 type options[In any] struct {
-	output   *jsonschema.Schema
-	validate toolkit.ValidateFunc[In]
-	elicit   toolkit.ElicitParamsFunc[In]
+	output      *jsonschema.Schema
+	validate    toolkit.ValidateFunc[In]
+	elicit      toolkit.ElicitParamsFunc[In]
+	annotations *mcp.ToolAnnotations
+	gateID      string
 }
 
 // Option configures a Read/Write registration; In is usually inferred.
@@ -30,6 +32,17 @@ func WithValidateFunc[In any](f toolkit.ValidateFunc[In]) Option[In] {
 // WithElicitFunc sets a write tool's elicit-prompt builder; on Read panics.
 func WithElicitFunc[In any](f toolkit.ElicitParamsFunc[In]) Option[In] {
 	return func(o *options[In]) { o.elicit = f }
+}
+
+// WithToolAnnotations sets the tool's hints; ReadOnlyHint is set by Read/Write.
+// Named apart from WithAnnotations, which carries a resource's mcp.Annotations.
+func WithToolAnnotations[In any](a mcp.ToolAnnotations) Option[In] {
+	return func(o *options[In]) { o.annotations = &a }
+}
+
+// WithGateID overrides the key naming a write tool's confirmation request.
+func WithGateID[In any](id string) Option[In] {
+	return func(o *options[In]) { o.gateID = id }
 }
 
 // Read describes a read-only tool. In/Out are inferred from call.
@@ -85,6 +98,12 @@ func build[In, Out any](
 	}
 	if o.elicit != nil {
 		t = t.WithElicitParamsFunc(o.elicit)
+	}
+	if o.annotations != nil {
+		t = t.WithAnnotations(*o.annotations)
+	}
+	if o.gateID != "" {
+		t = t.WithGateID(o.gateID)
 	}
 	return t
 }

@@ -52,7 +52,7 @@ func TestRunValidatedPreservesValidateSentinel(t *testing.T) {
 			return validate.ErrEmpty
 		})
 
-	_, err := tl.runValidated(context.Background(), echoIn{})
+	_, err := tl.callValidated(context.Background(), echoIn{})
 	require.ErrorIs(t, err, validate.ErrEmpty)
 }
 
@@ -63,13 +63,123 @@ func TestMCPToolOutputSchema(t *testing.T) {
 		})
 
 	// Without WithOutputSchema, OutputSchema must be an untyped nil interface.
-	tool := tl.mcpTool(&mcp.ToolAnnotations{})
+	tool := tl.mcpTool(true)
 	require.True(
 		t,
 		tool.OutputSchema == nil,
 		"unset output schema must be an untyped nil interface",
 	)
 
-	tool = tl.WithOutputSchema(objectSchema()).mcpTool(&mcp.ToolAnnotations{})
+	tool = tl.WithOutputSchema(objectSchema()).mcpTool(true)
 	require.NotNil(t, tool.OutputSchema)
+}
+
+// The access category owns ReadOnlyHint; the caller owns the rest.
+func TestAnnotateKeepsCallerHints(t *testing.T) {
+	tl := New(nil, "n", "d", objectSchema(),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			return echoOut{Echo: in.Msg}, nil
+		}).
+		WithAnnotations(mcp.ToolAnnotations{
+			Title:           "Do it",
+			IdempotentHint:  true,
+			DestructiveHint: new(false),
+			OpenWorldHint:   new(true),
+		})
+
+	a := tl.annotate(false)
+	require.False(t, a.ReadOnlyHint, "a write is never read-only")
+	require.Equal(t, "Do it", a.Title)
+	require.True(t, a.IdempotentHint, "an idempotent write stays idempotent")
+	require.False(t, *a.DestructiveHint, "an additive write is not destructive")
+	require.True(t, *a.OpenWorldHint)
+}
+
+// Caller hints are returned whole: an unset DestructiveHint stays unset.
+func TestAnnotateReturnsCallerHintsVerbatim(t *testing.T) {
+	a := mcp.ToolAnnotations{Title: "Look", ReadOnlyHint: true}
+	tl := New(nil, "n", "d", objectSchema(),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			return echoOut{Echo: in.Msg}, nil
+		}).
+		WithAnnotations(a)
+
+	require.Equal(t, &a, tl.annotate(true))
+}
+
+// Hints that contradict the access category are programmer errors.
+func TestAnnotatePanicsOnContradiction(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        mcp.ToolAnnotations
+		readOnly bool
+		wantErr  error
+	}{
+		{
+			"read-only write",
+			mcp.ToolAnnotations{ReadOnlyHint: true},
+			false,
+			ErrReadOnlyMismatch,
+		},
+		{
+			"read leaving ReadOnlyHint unset",
+			mcp.ToolAnnotations{Title: "Look"},
+			true,
+			ErrReadOnlyMismatch,
+		},
+		{
+			"destructive read",
+			mcp.ToolAnnotations{
+				ReadOnlyHint:    true,
+				DestructiveHint: new(true),
+			},
+			true,
+			ErrDestructiveRead,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tl := New(nil, "n", "d", objectSchema(),
+				func(_ context.Context, in echoIn) (echoOut, error) {
+					return echoOut{Echo: in.Msg}, nil
+				}).
+				WithAnnotations(tt.a)
+
+			require.PanicsWithError(
+				t,
+				"n: "+tt.wantErr.Error(),
+				func() { tl.annotate(tt.readOnly) },
+			)
+		})
+	}
+}
+
+// Unset hints keep the defaults each category shipped before WithAnnotations.
+func TestAnnotateDefaults(t *testing.T) {
+	tl := New(nil, "n", "d", objectSchema(),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			return echoOut{Echo: in.Msg}, nil
+		})
+
+	read := tl.annotate(true)
+	require.True(t, read.ReadOnlyHint)
+	require.True(t, read.IdempotentHint)
+	require.False(t, *read.DestructiveHint)
+
+	write := tl.annotate(false)
+	require.False(t, write.ReadOnlyHint)
+	require.False(t, write.IdempotentHint)
+	require.True(t, *write.DestructiveHint, "writes default to destructive")
+}
+
+// The gate key defaults to elicit.GateID and WithGateID overrides it.
+func TestGateID(t *testing.T) {
+	tl := New(nil, "n", "d", objectSchema(),
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			return echoOut{Echo: in.Msg}, nil
+		})
+
+	require.Equal(t, elicit.GateID, tl.gate())
+	require.Equal(t, "acme/confirm", tl.WithGateID("acme/confirm").gate())
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // gateTool registers the two-pass gate: ask on the first call, act on the retry.
-func gateTool(s *mcp.Server) {
+func gateTool(s *mcp.Server, gateID string) {
 	s.AddTool(
 		&mcp.Tool{
 			Name:        "gate",
@@ -23,9 +23,10 @@ func gateTool(s *mcp.Server) {
 			_ context.Context,
 			req *mcp.CallToolRequest,
 		) (*mcp.CallToolResult, error) {
-			resp, ok := elicit.Response(req.Params.InputResponses)
+			resp, ok := req.Params.InputResponses[gateID]
 			if !ok {
 				res, err := elicit.Ask(
+					gateID,
 					req.Session,
 					&mcp.ElicitParams{Message: "ok?"},
 				)
@@ -73,10 +74,10 @@ func session(
 }
 
 // gateServer wires a fresh server and session answering with action.
-func gateServer(t *testing.T, action string) *mcp.ClientSession {
+func gateServer(t *testing.T, action, gateID string) *mcp.ClientSession {
 	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
+	gateTool(s, gateID)
 	return session(
 		t,
 		s,
@@ -121,7 +122,7 @@ func TestGateActions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res, err := callGate(t, gateServer(t, tt.action))
+			res, err := callGate(t, gateServer(t, tt.action, elicit.GateID))
 			require.NoError(t, err)
 
 			if tt.wantErr == nil {
@@ -140,9 +141,17 @@ func TestGateActions(t *testing.T) {
 	}
 }
 
+// A gate keyed on a custom id completes the same two passes.
+func TestGateCustomID(t *testing.T) {
+	cs := gateServer(t, "accept", "acme/confirm")
+	res, err := callGate(t, cs)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a custom gate id must round-trip")
+}
+
 func TestAskNoElicitationCapability(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
+	gateTool(s, elicit.GateID)
 
 	cs := session(t, s, nil) // no handler → no elicitation capability
 
@@ -158,7 +167,7 @@ func TestAskNoElicitationCapability(t *testing.T) {
 // A failing client handler aborts the call before the server is asked again.
 func TestGateClientHandlerFails(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	gateTool(s)
+	gateTool(s, elicit.GateID)
 
 	cs := session(
 		t,
@@ -176,16 +185,7 @@ func TestGateClientHandlerFails(t *testing.T) {
 	require.Contains(t, err.Error(), "transport boom")
 }
 
-func TestResponseAbsent(t *testing.T) {
-	_, ok := elicit.Response(nil)
-	require.False(t, ok, "a first-pass call carries no confirmation")
-
-	_, ok = elicit.Response(mcp.InputResponseMap{"other": nil})
-	require.False(t, ok, "another request's answer is not the gate's")
-
-	resp, ok := elicit.Response(mcp.InputResponseMap{
-		elicit.GateID: &mcp.ElicitResult{Action: "accept"},
-	})
-	require.True(t, ok)
-	require.NoError(t, elicit.Decide(resp))
+func TestDecideRejectsNonElicitResponse(t *testing.T) {
+	err := elicit.Decide(nil)
+	require.ErrorIs(t, err, elicit.ErrElicitationFailed)
 }

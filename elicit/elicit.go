@@ -12,11 +12,12 @@ const (
 	cancel  = "cancel"
 )
 
-// GateID names the input request carrying the write-tool confirmation.
+// GateID is the default key naming the write-tool confirmation request.
 const GateID = "io.github.acidsailor.mcpkit/confirm"
 
 // Ask builds the input-required result asking the client to confirm.
 func Ask(
+	gateID string,
 	session *mcp.ServerSession,
 	params *mcp.ElicitParams,
 ) (*mcp.CallToolResult, error) {
@@ -29,14 +30,8 @@ func Ask(
 		params = &mcp.ElicitParams{}
 	}
 	return &mcp.CallToolResult{
-		InputRequests: mcp.InputRequestMap{GateID: params},
+		InputRequests: mcp.InputRequestMap{gateID: params},
 	}, nil
-}
-
-// Response returns the confirmation the client fulfilled, if present.
-func Response(responses mcp.InputResponseMap) (mcp.InputResponse, bool) {
-	resp, ok := responses[GateID]
-	return resp, ok
 }
 
 // Decide maps a fulfilled confirmation to nil (accept) or a sentinel error.

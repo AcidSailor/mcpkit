@@ -119,12 +119,36 @@ nil). Chain optional config, then register:
 - `.WithOutputSchema(schema)` — optional; when set the SDK validates structured results.
 - `.WithValidateFunc(f)` — runs on decoded input before the call (and before elicitation for writes).
 - `.WithElicitParamsFunc(f)` — builds the confirmation prompt for write tools.
-- `AddRead(tool)` — registers a read-only tool (ReadOnly + Idempotent hints).
+- `.WithAnnotations(a)` — sets the tool's hints; see below.
+- `.WithGateID(id)` — overrides the confirmation's input-request key
+  (`elicit.GateID` by default).
+- `AddRead(tool)` — registers a read-only tool.
   **Panics** if an elicit-params func was set (meaningless for reads).
-- `AddWrite(tool)` — registers a state-mutating tool (Destructive hint) **gated
-  by MCP elicitation**: the client must support elicitation (else
+- `AddWrite(tool)` — registers a state-mutating tool **gated by MCP
+  elicitation**: the client must support elicitation (else
   `ErrNoElicitation`); the call runs only on an `accept` action
   (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`).
+
+**Annotations.** Two paths, no merging. Without `WithAnnotations` a tool gets
+its category's defaults (read: read-only + idempotent; write: destructive +
+non-idempotent — the values both kinds hardcoded before the option existed).
+With it, the hints are the caller's to own **whole**: checked against the
+category, then used verbatim, nothing filled in. A write setting only a `Title`
+therefore omits `destructiveHint`, which the spec already reads as `true`, so
+that omission is not a safety hole.
+
+The category owns `ReadOnlyHint` — the same choice that decides whether the gate
+wraps the handler and, through `registry.Access`, whether `Enable.Write` binds
+the tool at all. Contradictions **panic at registration** (at `Bind` when going
+through `registry`), wrapped with the tool name: `ErrReadOnlyMismatch` when
+`ReadOnlyHint` disagrees with `AddRead`/`AddWrite`, `ErrDestructiveRead` for
+`DestructiveHint` on a read.
+
+Consequence of the SDK's types: `ReadOnlyHint` is a plain `bool`, so a **read**
+passing annotations must spell out `ReadOnlyHint: true` — an unset one is
+indistinguishable from an explicit `false` and is rejected rather than silently
+corrected. `toolkit/errors.go` holds these sentinels plus `ErrElicitOnRead` and
+the `elicit` re-exports.
 
 A gated write **runs its handler twice** per call — once to ask (`elicit.Ask`
 returns an input-required result), once to act after the client retries with the
@@ -135,7 +159,9 @@ both passes and **must be side-effect free**; `callFunc` runs only on the second
 lower-level variants that register a custom `mcp.ToolHandlerFor[In, Out]` as-is
 (keeping the Read/Write annotations): `AddReadFunc` skips input validation,
 `AddWriteFunc` runs ungated (no elicitation). `AddRead`/`AddWrite` are built on
-them.
+them, passing the two exported default handlers — `Call` (validate, then call)
+and `Gate` (the two-pass confirmation) — which a custom handler can wrap to keep
+validation or gating instead of reimplementing either.
 
 `toolkit` re-exports the `elicit` sentinels (`ErrUserDeclined`,
 `ErrUserCanceled`, `ErrNoElicitation`, `ErrUnexpectedElicitAction`,
@@ -194,8 +220,11 @@ subscriptions need `SubscribeHandler`/`UnsubscribeHandler` set at
 Collects tool and resource registrations as server-independent descriptors and
 binds them to a server in one pass, so the catalogue can be enumerated/filtered
 without a live server. `registry.Read(...)` / `registry.Write(...)` mirror the
-toolkit builder (`WithOutputSchema` / `WithValidateFunc` / `WithElicitFunc`
-options); `registry.Resource(...)` / `registry.ResourceTemplate(...)` mirror the
+toolkit builder (`WithOutputSchema` / `WithValidateFunc` / `WithElicitFunc` /
+`WithToolAnnotations` / `WithGateID` options — the tool hints are
+`WithToolAnnotations` because `WithAnnotations` is taken by the resource
+options, which carry an `*mcp.Annotations`);
+`registry.Resource(...)` / `registry.ResourceTemplate(...)` mirror the
 resource builder (`WithMIMEType` / `WithTitle` / `WithSize` / `WithAnnotations`
 options) — all return a `Registration`. `New(groups...)` flattens
 `[]Registration` slices into an ordered `Registry`, preserving order.

@@ -2,9 +2,10 @@
 //
 // Elicitation fronts a write tool as a multi-round-trip request (SEP-2322). A
 // server may not call its client mid-handler, so the gate runs in two passes.
-// Ask returns an input-required result carrying the confirmation under GateID;
-// the client fulfils it and retries the same call with the answer attached.
-// Response pulls that answer off the retry and Decide maps it:
+// Ask returns an input-required result carrying the confirmation under a caller
+// chosen key (GateID is the default); the client fulfils it and retries the
+// same call with the answer attached. The caller reads that answer off the
+// retry's InputResponses under the same key, and Decide maps it:
 //
 //	accept  -> nil (the caller proceeds with the mutating call)
 //	decline -> ErrUserDeclined

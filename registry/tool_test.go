@@ -110,6 +110,54 @@ func TestReadCallsHandler(t *testing.T) {
 	require.False(t, res.IsError)
 }
 
+// Caller hints reach the wire; the access category still owns ReadOnlyHint.
+func TestWithToolAnnotationsReachTheWire(t *testing.T) {
+	w := registry.Write(
+		"w", "", toolkit.InputSchema[echoIn](), echo,
+		registry.WithToolAnnotations[echoIn](mcp.ToolAnnotations{
+			Title:           "Create",
+			IdempotentHint:  true,
+			DestructiveHint: new(false),
+		}),
+		registry.WithGateID[echoIn]("acme/confirm"),
+	)
+
+	srv := newServer(t)
+	registry.New([]registry.Registration{w}).
+		Bind(srv, registry.Enable{Write: true})
+
+	cs := mcptest.NewSession(t, srv)
+	res, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, res.Tools, 1)
+
+	a := res.Tools[0].Annotations
+	require.NotNil(t, a)
+	require.False(t, a.ReadOnlyHint, "a write is never read-only")
+	require.Equal(t, "Create", a.Title)
+	require.True(t, a.IdempotentHint)
+	require.False(t, *a.DestructiveHint)
+}
+
+func TestReadOnlyHintOnWritePanicsAtBind(t *testing.T) {
+	w := registry.Write(
+		"w", "", toolkit.InputSchema[echoIn](), echo,
+		registry.WithToolAnnotations[echoIn](mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		}),
+	)
+
+	srv := newServer(t)
+	require.PanicsWithError(
+		t,
+		"w: "+toolkit.ErrReadOnlyMismatch.Error(),
+		func() {
+			registry.New([]registry.Registration{w}).
+				Bind(srv, registry.Enable{Write: true})
+		},
+	)
+}
+
 func TestWithElicitOnReadPanicsAtBind(t *testing.T) {
 	r := registry.Read(
 		"bad",

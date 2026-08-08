@@ -9,15 +9,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Re-exported so callers can match elicit sentinels without importing elicit.
-var (
-	ErrUserDeclined           = elicit.ErrUserDeclined
-	ErrUserCanceled           = elicit.ErrUserCanceled
-	ErrNoElicitation          = elicit.ErrNoElicitation
-	ErrUnexpectedElicitAction = elicit.ErrUnexpectedElicitAction
-	ErrElicitationFailed      = elicit.ErrElicitationFailed
-)
-
 type (
 	// CallFunc is the function a tool invokes.
 	CallFunc[In, Out any] func(ctx context.Context, in In) (Out, error)
@@ -37,6 +28,8 @@ type Tool[In, Out any] struct {
 	outputSchema     *jsonschema.Schema
 	validateFunc     ValidateFunc[In]
 	elicitParamsFunc ElicitParamsFunc[In]
+	annotations      *mcp.ToolAnnotations
+	gateID           string
 }
 
 // New starts a tool registration, inferring In/Out from call.
@@ -77,14 +70,56 @@ func (t Tool[In, Out]) WithElicitParamsFunc(
 	return t
 }
 
+// WithAnnotations sets the tool's hints. ReadOnlyHint is owned by the access
+// category (AddRead / AddWrite) and is overwritten here.
+func (t Tool[In, Out]) WithAnnotations(
+	a mcp.ToolAnnotations,
+) Tool[In, Out] {
+	t.annotations = &a
+	return t
+}
+
+// WithGateID overrides the key naming the write tool's confirmation request.
+func (t Tool[In, Out]) WithGateID(id string) Tool[In, Out] {
+	t.gateID = id
+	return t
+}
+
+// gate returns the confirmation request key, defaulting to elicit.GateID.
+func (t Tool[In, Out]) gate() string {
+	if t.gateID == "" {
+		return elicit.GateID
+	}
+	return t.gateID
+}
+
+// annotate returns the category's default hints, or the caller's verbatim once
+// checked against the category. Hints are the caller's to own whole: a write
+// leaving DestructiveHint unset omits it, which the spec already reads as true.
+func (t Tool[In, Out]) annotate(readOnly bool) *mcp.ToolAnnotations {
+	if t.annotations == nil {
+		return &mcp.ToolAnnotations{
+			ReadOnlyHint:    readOnly,
+			IdempotentHint:  readOnly,
+			DestructiveHint: new(!readOnly),
+		}
+	}
+	a := *t.annotations
+	if a.ReadOnlyHint != readOnly {
+		panic(t.wrap(ErrReadOnlyMismatch))
+	}
+	if readOnly && a.DestructiveHint != nil && *a.DestructiveHint {
+		panic(t.wrap(ErrDestructiveRead))
+	}
+	return &a
+}
+
 // mcpTool builds the SDK tool descriptor; OutputSchema set only when present.
-func (t Tool[In, Out]) mcpTool(
-	annotations *mcp.ToolAnnotations,
-) *mcp.Tool {
+func (t Tool[In, Out]) mcpTool(readOnly bool) *mcp.Tool {
 	tool := &mcp.Tool{
 		Name:        t.name,
 		Description: t.description,
-		Annotations: annotations,
+		Annotations: t.annotate(readOnly),
 		InputSchema: t.inputSchema,
 	}
 	if t.outputSchema != nil {
@@ -109,8 +144,8 @@ func (t Tool[In, Out]) validate(ctx context.Context, in In) error {
 	return t.validateFunc(ctx, in)
 }
 
-// runValidated runs the validator then the call; wraps errs with the name.
-func (t Tool[In, Out]) runValidated(
+// callValidated runs the validator then the call; wraps errs with the name.
+func (t Tool[In, Out]) callValidated(
 	ctx context.Context,
 	in In,
 ) (Out, error) {
