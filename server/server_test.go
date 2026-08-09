@@ -23,7 +23,7 @@ func newMCP() *mcp.Server {
 	return mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 }
 
-// httpHandler builds an SDK streamable handler for a non-nil Handler in tests.
+// httpHandler returns an SDK streamable HTTP handler.
 func httpHandler(m *mcp.Server) http.Handler {
 	return mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return m },
@@ -76,7 +76,7 @@ func TestListenAndServe_NoHTTPServer(t *testing.T) {
 }
 
 func TestListenAndServe_BothNoHTTPServer(t *testing.T) {
-	// Both shares the HTTP validation contract: it needs WithHTTPServer too.
+	// Both requires the same HTTP configuration as HTTP.
 	s := New(newMCP(), WithTransport(Both))
 	err := s.ListenAndServe(context.Background())
 	require.ErrorIs(t, err, ErrNoHTTPServer)
@@ -108,7 +108,7 @@ func TestRunWithRecover_RecoversPanic(t *testing.T) {
 }
 
 func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
-	// Grab a free port, then release it for the server.
+	// Reserve an available address for the server.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := l.Addr().String()
@@ -122,7 +122,7 @@ func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() { errCh <- s.ListenAndServe(ctx) }()
 
-	// Wait until the server accepts connections.
+	// Wait for the server to accept connections.
 	require.Eventually(t, func() bool {
 		c, derr := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if derr != nil {
@@ -146,11 +146,11 @@ func TestWithHTTPServer_ServesAsIs(t *testing.T) {
 	base := &http.Server{Addr: "127.0.0.1:9999", Handler: httpHandler(m)}
 	s := New(m, WithTransport(HTTP), WithHTTPServer(base))
 	require.NoError(t, s.validate())
-	require.Same(t, base, s.httpServer) // served unchanged
+	require.Same(t, base, s.httpServer) // The server is stored unchanged.
 }
 
 func TestWithHTTPServer_NilHandler(t *testing.T) {
-	base := &http.Server{Addr: "127.0.0.1:9999"} // no Handler
+	base := &http.Server{Addr: "127.0.0.1:9999"} // Handler is nil.
 	s := New(newMCP(), WithTransport(HTTP), WithHTTPServer(base))
 	err := s.ListenAndServe(context.Background())
 	require.ErrorIs(t, err, ErrNilHandler)
@@ -177,7 +177,7 @@ func selfSignedTLSConfig(t *testing.T) *tls.Config {
 }
 
 func TestListenAndServe_HTTPSGracefulShutdown(t *testing.T) {
-	// Grab a free port, then release it for the server.
+	// Reserve an available address for the server.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := l.Addr().String()

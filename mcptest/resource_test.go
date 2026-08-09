@@ -11,7 +11,7 @@ import (
 	"github.com/acidsailor/mcpkit/mcptest"
 )
 
-// addResource registers a resource serving fixed contents via the raw SDK.
+// addResource registers fixed content through the SDK.
 func addResource(s *mcp.Server, uri string, c *mcp.ResourceContents) {
 	s.AddResource(
 		&mcp.Resource{Name: uri, URI: uri},

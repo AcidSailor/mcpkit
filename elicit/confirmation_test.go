@@ -16,7 +16,7 @@ type confirmInput struct {
 }
 
 func TestDynamicConfirmationBuildsMessageFromInput(t *testing.T) {
-	// describe turns input into the prompt message; no requested fields.
+	// describe builds the prompt without requested fields.
 	pf := elicit.DynamicConfirmation(
 		func(_ context.Context, in confirmInput) (string, error) {
 			return "delete " + in.Name + "?", nil
@@ -31,7 +31,7 @@ func TestDynamicConfirmationBuildsMessageFromInput(t *testing.T) {
 	require.Equal(t, "object", schema.Type)
 	require.Empty(t, schema.Properties, "confirmation requests no input fields")
 
-	// Non-nil map serialises "properties":{}; a nil map omits it.
+	// A non-nil map encodes the required empty properties object.
 	require.NotNil(t, schema.Properties,
 		"properties must be a non-nil empty map, not omitted")
 	raw, err := json.Marshal(schema)

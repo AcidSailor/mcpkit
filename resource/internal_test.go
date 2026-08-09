@@ -11,8 +11,7 @@ import (
 	"github.com/yosida95/uritemplate/v3"
 )
 
-// mustVars matches uri against tmpl and wraps the extracted values, failing the
-// test if the URI does not match.
+// mustVars returns template variables or fails the test.
 func mustVars(t *testing.T, tmpl, uri string) Vars {
 	t.Helper()
 	parsed, err := uritemplate.New(tmpl)
@@ -41,15 +40,14 @@ func TestVars_LookupAbsent(t *testing.T) {
 }
 
 func TestToWireErr_MapsSentinels(t *testing.T) {
-	// Both not-found sentinels map to the SDK's typed not-found error, even
-	// when wrapped with context via %w (as the handlers do).
+	// Wrapped not-found sentinels map to the SDK error.
 	for _, sentinel := range []error{ErrNotFound, ErrTemplateMismatch} {
 		wrapped := fmt.Errorf("name: %w", sentinel)
 		got := toWireErr("u://x", wrapped)
 		assert.Equal(t, mcp.ResourceNotFoundError("u://x"), got)
 	}
 
-	// A non-sentinel error passes through unchanged, and nil stays nil.
+	// Other errors and nil pass through unchanged.
 	other := errors.New("boom")
 	assert.Equal(t, other, toWireErr("u://x", other))
 	assert.Nil(t, toWireErr("u://x", nil))

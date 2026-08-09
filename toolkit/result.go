@@ -2,7 +2,7 @@ package toolkit
 
 import "encoding/json"
 
-// Envelopes wrap a bare slice or scalar so the JSON root stays an object.
+// Result envelopes give slices and scalars an object root.
 type (
 	// Items wraps a slice result under the "items" key.
 	Items[T any] struct {

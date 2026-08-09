@@ -37,8 +37,7 @@ func WithAnnotations(a *mcp.Annotations) ResourceOption {
 	return func(o *resourceOptions) { o.annotations = a }
 }
 
-// Resource describes a static resource bound server-independently. It always
-// binds (resources are read-only; Enable.Write does not gate them).
+// Resource describes a static resource that always binds.
 func Resource(
 	uri, name, description string,
 	read resource.ReadFunc,
@@ -53,8 +52,7 @@ func Resource(
 	}
 }
 
-// ResourceTemplate describes a templated resource bound server-independently.
-// It always binds. WithSize is ignored (a template has no fixed size).
+// ResourceTemplate describes a resource template that always binds.
 func ResourceTemplate(
 	uriTemplate, name, description string,
 	read resource.TemplateReadFunc,

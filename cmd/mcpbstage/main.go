@@ -2,7 +2,7 @@ package main
 
 import "github.com/alecthomas/kong"
 
-// cli defines the mcpbstage flags parsed by kong.
+// cli defines mcpbstage flags.
 type cli struct {
 	Dist     string `help:"GoReleaser output directory."             default:"dist"`
 	Manifest string `help:"Path to the source mcpb manifest."        default:"mcpb/manifest.json"`

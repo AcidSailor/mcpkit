@@ -8,7 +8,7 @@ var (
 	ErrUserCanceled  = errors.New("canceled by user")
 	ErrNoElicitation = errors.New(
 		"client must support MCP elicitation for write tools " +
-			"(a stateless HTTP server handler also drops this capability)",
+			"(a stateless HTTP handler drops it for pre-2026-07-28 clients)",
 	)
 	ErrUnexpectedElicitAction = errors.New("unexpected elicit action")
 	ErrElicitationFailed      = errors.New("elicitation failed")

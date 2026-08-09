@@ -7,62 +7,48 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Default MIME types for the built-in Content shapes, exported so callers can
-// pass them to WithMIMEType instead of repeating the literals.
+// Default MIME types for Content values.
 const (
 	// MIMEText is the fallback MIME type for Text content.
 	MIMEText = "text/plain"
 	// MIMEBlob is the fallback MIME type for Blob content.
 	MIMEBlob = "application/octet-stream"
-	// MIMEJSON is the MIME type JSON content always serves.
+	// MIMEJSON is the fixed MIME type for JSON content.
 	MIMEJSON = "application/json"
 )
 
-// Content produces the contents of a single resource read. The uri and a
-// fallback MIME type are supplied by the package at read time, so handlers
-// need not repeat them.
+// Content produces one resource read result.
 type Content interface {
-	// contents is unexported so only this package defines Content shapes;
-	// it returns an error so JSON can report marshal failures honestly.
+	// contents creates SDK content with the supplied URI and fallback MIME type.
 	contents(uri, fallbackMIME string) ([]*mcp.ResourceContents, error)
 }
 
-// Text is UTF-8 textual content. MIME overrides the resource's declared
-// MIMEType; absent both, it defaults to MIMEText.
+// Text contains UTF-8 text and an optional MIME override.
 type Text struct {
 	Text string
 	MIME string
 }
 
-// Blob is binary content, base64-encoded on the wire by the SDK. MIME
-// overrides the resource's MIMEType; absent both, MIMEBlob.
+// Blob contains binary data and an optional MIME override.
 type Blob struct {
 	Data []byte
 	MIME string
 }
 
-// JSON marshals Value and serves it as text with MIME MIMEJSON
-// unconditionally — the resource's declared MIMEType (and WithMIMEType) do not
-// apply to JSON content.
+// JSON marshals Value as text with MIMEJSON.
 type JSON[T any] struct {
 	Value T
 }
 
-// Raw is an escape hatch: it serves the given contents verbatim, for handlers
-// that need multiple sub-resources or custom per-content metadata. Unlike the
-// other shapes, Raw does not stamp the URI or fill a fallback MIME — the caller
-// owns each block's fields. Contents must be non-empty; an empty Raw yields
-// ErrNoContent rather than a silent empty read.
+// Raw serves non-empty SDK content blocks without modification.
 type Raw struct {
 	Contents []*mcp.ResourceContents
 }
 
-// NewText wraps s as Text content with a default MIME. To override the MIME
-// per content, use a Text struct literal (Text{Text: s, MIME: …}).
+// NewText returns Text that uses the resource MIME or MIMEText.
 func NewText(s string) Text { return Text{Text: s} }
 
-// NewBlob wraps b as Blob content with a default MIME. To override the MIME per
-// content, use a Blob struct literal (Blob{Data: b, MIME: …}).
+// NewBlob returns Blob that uses the resource MIME or MIMEBlob.
 func NewBlob(b []byte) Blob { return Blob{Data: b} }
 
 // NewJSON wraps v as JSON content.

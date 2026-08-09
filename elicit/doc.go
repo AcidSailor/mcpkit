@@ -1,24 +1,15 @@
-// Package elicit provides the MCP elicitation gate and write-tool sentinels.
+// Package elicit implements confirmation gates for MCP write tools.
 //
-// Gate runs the elicitation handshake that fronts a write tool. It first
-// requires the client to advertise the elicitation capability (else
-// ErrNoElicitation), then issues the request and maps the returned action to a
-// result:
+// Ask returns an input-required result. The client supplies an action and
+// retries the call. Decide accepts the action or returns a matchable sentinel.
+// The handler therefore runs once to ask and once to act. Work before the gate
+// must not have side effects.
 //
-//	accept  -> nil (the caller proceeds with the mutating call)
-//	decline -> ErrUserDeclined
-//	cancel  -> ErrUserCanceled
-//	other   -> ErrUnexpectedElicitAction
+// A response supplied with the initial call bypasses Ask. RequestState is not
+// signed, so the retry is not bound to the original request. The gate records
+// reported user intent; it does not authenticate the client or authorize the
+// operation. Use authentication and idempotency controls where required.
 //
-// A transport/protocol failure is wrapped with ErrElicitationFailed. Only the
-// action gates the call; returned field values are not inspected.
-//
-// ErrNoElicitation has a second, easily-missed cause: a stateless HTTP handler.
-// It uses a temporary session with default init params, so the client's
-// elicitation capability is never retained and server->client requests are
-// rejected — Gate then fails even when the client did advertise the capability.
-// Serve write tools over stdio or a stateful HTTP handler (see package server).
-//
-// The sentinels live in errors.go; toolkit re-exports them so callers need not
-// import elicit directly.
+// Stateless HTTP supports gated writes for protocol 2026-07-28 and later.
+// Earlier clients need stdio or a stateful HTTP handler.
 package elicit

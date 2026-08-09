@@ -10,8 +10,7 @@ import (
 // ReadFunc reads a static resource's content.
 type ReadFunc func(ctx context.Context) (Content, error)
 
-// Resource is a fluent registration builder, distinct from the SDK's
-// mcp.Resource. It is a value type — builder methods return a copy.
+// Resource is a value builder for a static MCP resource.
 type Resource struct {
 	server      *mcp.Server
 	uri         string
@@ -70,8 +69,7 @@ func (r Resource) WithAnnotations(a *mcp.Annotations) Resource {
 	return r
 }
 
-// Add registers the resource on the server. It panics if the URI is malformed
-// (fails url.Parse), surfacing the SDK's AddResource panic unchanged.
+// Add registers the resource and panics if its URI is invalid.
 func (r Resource) Add() {
 	res := &mcp.Resource{
 		Name:        r.name,
