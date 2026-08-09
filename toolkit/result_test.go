@@ -22,15 +22,15 @@ func TestWrapItemsNilNormalizedToEmptyArray(t *testing.T) {
 	require.NoError(t, err)
 	b, err := json.Marshal(got)
 	require.NoError(t, err)
-	// A nil slice must serialize to [] (not null) for array schemas.
+	// Nil slices encode as arrays, not null.
 	assert.JSONEq(t, `{"items":[]}`, string(b))
 }
 
 func TestItemsZeroValueMarshalsEmptyArray(t *testing.T) {
-	var it Items[int] // zero value: nil slice
+	var it Items[int] // The zero value contains a nil slice.
 	b, err := json.Marshal(it)
 	require.NoError(t, err)
-	// Even a zero value must serialize to [] (not null), not just WrapItems.
+	// A zero-value envelope also encodes an array.
 	assert.JSONEq(t, `{"items":[]}`, string(b))
 }
 

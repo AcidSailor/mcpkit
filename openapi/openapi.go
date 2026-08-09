@@ -48,7 +48,7 @@ func Parse(doc []byte) (*Schemas, error) {
 	if err := json.Unmarshal(doc, &d); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParse, err)
 	}
-	// Rewrite OpenAPI 3.0 `nullable: true` to a null-permitting type up front.
+	// Convert OpenAPI 3.0 nullable fields before schema extraction.
 	for _, s := range d.Components.Schemas {
 		applyNullable(s)
 	}
@@ -159,8 +159,7 @@ func Object(
 	}
 }
 
-// ParamsSchema builds an input schema from an op's params (all, or a named
-// subset); panics if the op is unknown or a requested name is not a param.
+// ParamsSchema returns all or selected parameters and rejects unknown names.
 func (s *Schemas) ParamsSchema(
 	method, path string,
 	names ...string,
@@ -210,8 +209,7 @@ func (s *Schemas) Summary(method, path string) string {
 	return s.mustOp(method, path).Summary
 }
 
-// BodySchema clones an op's application/json request-body schema; panics if the
-// op is unknown or has no application/json request body.
+// BodySchema returns the JSON body schema and panics if it does not exist.
 func (s *Schemas) BodySchema(method, path string) *jsonschema.Schema {
 	op := s.mustOp(method, path)
 	if op.RequestBody != nil {
@@ -263,8 +261,7 @@ func paramSchema(p parameter) *jsonschema.Schema {
 	return p.Schema.CloneSchemas()
 }
 
-// OutputObject builds an object-response output schema from the named component;
-// panics if name is unknown or the component is not an object.
+// OutputObject returns an object component and panics if it is not an object.
 func (s *Schemas) OutputObject(name string) *jsonschema.Schema {
 	comp := s.Ref(name)
 	if comp.Type != "object" {

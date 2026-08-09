@@ -16,7 +16,7 @@ const defaultShutdownTimeout = 30 * time.Second
 
 // Server serves an mcp.Server over the configured transport(s).
 type Server struct {
-	MCP *mcp.Server // escape hatch to the underlying server
+	MCP *mcp.Server // Underlying MCP server.
 
 	transport       Transport
 	shutdownTimeout time.Duration
@@ -64,7 +64,7 @@ func (s *Server) validate() error {
 	if s.transport == Stdio {
 		return nil
 	}
-	// HTTP and Both need the caller-owned server to exist and be wired.
+	// HTTP transports require a configured server and handler.
 	hs := s.httpServer
 	if hs == nil {
 		return fmt.Errorf(
@@ -103,7 +103,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 func (s *Server) serveStdio(ctx context.Context) error {
 	slog.InfoContext(ctx, "server running on stdio")
 	err := s.MCP.Run(ctx, &mcp.StdioTransport{})
-	// context.Canceled is the shutdown signal (nil); anything else is ErrServe.
+	// Cancellation is normal shutdown; other errors are failures.
 	if err == nil || errors.Is(err, context.Canceled) {
 		return nil
 	}
@@ -121,10 +121,10 @@ func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
 	go func() { serveErr <- serve() }()
 	select {
 	case err := <-serveErr:
-		// serve() returned on its own — a startup/runtime failure.
+		// An early return is a startup or runtime failure.
 		return fmt.Errorf("%w: %w", ErrServe, err)
 	case <-ctx.Done():
-		// Shutdown signal; serve()'s http.ErrServerClosed lands unread.
+		// Shutdown leaves the buffered http.ErrServerClosed unread.
 		return s.shutdown(hs)
 	}
 }

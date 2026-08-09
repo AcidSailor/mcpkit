@@ -35,9 +35,7 @@ const testManifest = `{
   }
 }`
 
-// fixture lays out a dist/ + mcpb/ under a temp root with three platform
-// binaries and a matching artifacts.json. Artifact paths are absolute so Stage
-// can open them regardless of cwd.
+// fixture creates GoReleaser output and an mcpb manifest.
 func fixture(t *testing.T) (root, dist, manifest string) {
 	t.Helper()
 	root = t.TempDir()
@@ -60,8 +58,7 @@ func fixture(t *testing.T) (root, dist, manifest string) {
 	]`
 	writeFile(t, filepath.Join(dist, "artifacts.json"), arts)
 	writeFile(t, manifest, testManifest)
-	// A flat sibling asset next to manifest.json: copyTree must carry it into
-	// the bundle, and it must survive the stamped-manifest overwrite.
+	// The manifest directory includes one flat asset.
 	writeFile(t, filepath.Join(root, "mcpb", "icon.png"), "ICON")
 	return root, dist, manifest
 }
@@ -88,7 +85,7 @@ func TestStage_LaysOutBundle(t *testing.T) {
 	if man["name"] != "foo" {
 		t.Errorf("name not preserved: %v", man["name"])
 	}
-	// Stamping must preserve nested keys, not just top-level scalars.
+	// Version stamping preserves nested fields.
 	cmd, _ := man["server"].(map[string]any)
 	mcpCfg, _ := cmd["mcp_config"].(map[string]any)
 	if mcpCfg["command"] != "${__dirname}/server/foo-darwin-arm64" {
@@ -98,7 +95,7 @@ func TestStage_LaysOutBundle(t *testing.T) {
 		t.Errorf("platform_overrides not preserved: %v", mcpCfg)
 	}
 
-	// The flat sibling asset must be copied verbatim.
+	// Manifest assets are copied unchanged.
 	if b, err := os.ReadFile(filepath.Join(out, "icon.png")); err != nil {
 		t.Errorf("icon.png not staged: %v", err)
 	} else if string(b) != "ICON" {
@@ -156,8 +153,7 @@ func TestStage_MissingMetadataFails(t *testing.T) {
 	}
 }
 
-// TestStage_IsIdempotent runs Stage twice into the same out dir (exercising the
-// os.RemoveAll clean) and asserts the second run produces the same layout.
+// TestStage_IsIdempotent checks repeated staging into one directory.
 func TestStage_IsIdempotent(t *testing.T) {
 	root, dist, manifest := fixture(t)
 	out := filepath.Join(root, "dist", "mcpb")
@@ -175,8 +171,7 @@ func TestStage_IsIdempotent(t *testing.T) {
 	}
 }
 
-// TestStage_NestedAssetDirFails asserts an unsupported nested asset directory
-// fails loudly instead of being silently dropped from the bundle.
+// TestStage_NestedAssetDirFails checks rejection of nested assets.
 func TestStage_NestedAssetDirFails(t *testing.T) {
 	root, dist, manifest := fixture(t)
 	writeFile(t, filepath.Join(root, "mcpb", "assets", "logo.png"), "LOGO")
@@ -185,8 +180,7 @@ func TestStage_NestedAssetDirFails(t *testing.T) {
 	}
 }
 
-// TestStage_EmptyOverrideCommandFails asserts a present-but-empty override
-// command is rejected, naming the platform, rather than silently dropped.
+// TestStage_EmptyOverrideCommandFails checks an empty platform command.
 func TestStage_EmptyOverrideCommandFails(t *testing.T) {
 	root, dist, manifest := fixture(t)
 	writeFile(t, manifest, `{
@@ -201,8 +195,7 @@ func TestStage_EmptyOverrideCommandFails(t *testing.T) {
 	}
 }
 
-// TestStage_UnparseableCommandFails asserts a command whose basename lacks the
-// <name>-<goos>-<goarch> shape is rejected (the splitTarget guard).
+// TestStage_UnparseableCommandFails checks an invalid binary name.
 func TestStage_UnparseableCommandFails(t *testing.T) {
 	root, dist, manifest := fixture(t)
 	writeFile(t, manifest, `{
@@ -240,7 +233,7 @@ func TestFindArtifact(t *testing.T) {
 		goarch: "amd64",
 	}
 
-	// Single match resolves.
+	// A unique platform artifact resolves directly.
 	if p, err := findArtifact(
 		[]artifact{linuxV1},
 		target,
@@ -248,14 +241,14 @@ func TestFindArtifact(t *testing.T) {
 		p != linuxV1.Path {
 		t.Fatalf("single match: got %q, %v", p, err)
 	}
-	// Two same-name variants (goamd64 v1/v3) are irreducibly ambiguous → error.
+	// Same-name variants remain ambiguous.
 	if _, err := findArtifact(
 		[]artifact{linuxV1, linuxV3},
 		target,
 	); err == nil {
 		t.Fatal("expected ambiguity error for goamd64 variants")
 	}
-	// Two builds for one platform: disambiguated by the manifest's binary name.
+	// The manifest binary name disambiguates multiple builds.
 	if p, err := findArtifact(
 		[]artifact{helper, linuxV1},
 		target,
@@ -263,7 +256,7 @@ func TestFindArtifact(t *testing.T) {
 		p != linuxV1.Path {
 		t.Fatalf("multi-build disambiguation: got %q, %v", p, err)
 	}
-	// No match → error.
+	// A missing platform artifact returns an error.
 	if _, err := findArtifact(nil, target); err == nil {
 		t.Fatal("expected error for no match")
 	}

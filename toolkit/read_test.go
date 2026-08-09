@@ -39,7 +39,7 @@ func TestAddRead_DecodeError(t *testing.T) {
 		}))
 
 	cs := newTestMCPSession(t, s)
-	// msg is an int but echoIn.Msg is a string: decode fails as a tool error.
+	// An integer cannot decode into echoIn.Msg.
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "echo",
 		Arguments: map[string]any{"msg": 42},
@@ -78,7 +78,7 @@ func TestAddRead_PanicsWhenElicitSet(t *testing.T) {
 	})
 }
 
-// A gate id is dead config on a read; silently dropping it hides the mistake.
+// AddRead rejects an unused gate ID.
 func TestAddRead_PanicsWhenGateIDSet(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	require.PanicsWithError(t, "echo: "+ErrGateIDOnRead.Error(), func() {
@@ -93,7 +93,7 @@ func TestAddRead_PanicsWhenGateIDSet(t *testing.T) {
 func TestAddReadFunc_CustomHandler(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	// The supplied handler runs as-is, proving callFunc is what executes.
+	// AddReadFunc invokes the supplied handler.
 	AddReadFunc(
 		New(s, "echo", "echoes", objectSchema(),
 			func(_ context.Context, in echoIn) (echoOut, error) {

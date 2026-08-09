@@ -10,7 +10,7 @@ import (
 	"github.com/acidsailor/mcpkit/openapi"
 )
 
-// fixture is a minimal dereferenced OpenAPI 3.1 document covering the methods.
+// fixture returns a minimal dereferenced OpenAPI 3.1 document.
 const fixture = `{
   "paths": {
     "/things": {
@@ -79,7 +79,7 @@ func TestParamsSchema_Optional(t *testing.T) {
 	kind := s.Properties["kind"]
 	require.NotNil(t, kind, "kind param missing")
 	assert.NotNil(t, kind.Enum, "kind enum not carried through")
-	// Self-contained: no $defs; optional-only op has no required list.
+	// The result is self-contained and omits an empty required list.
 	assert.Nil(t, s.Defs, "$defs unexpectedly attached")
 	assert.Nil(t, s.Required, "unexpected required list")
 }
@@ -122,7 +122,7 @@ func TestBodySchema(t *testing.T) {
 	assert.Equal(t, "string", b.Properties["name"].Type)
 	assert.Equal(t, []string{"name"}, b.Required)
 
-	// Self-contained clone: mutating it must not affect a fresh lookup.
+	// Mutating the result does not affect later lookups.
 	delete(b.Properties, "name")
 	again := mustParse(t).BodySchema("post", "/things")
 	assert.NotNil(t, again.Properties["name"], "clone aliased the document")
@@ -137,7 +137,7 @@ func TestBodySchema_AbsentPanics(t *testing.T) {
 		require.True(t, ok, "panic value should be an error")
 		assert.ErrorIs(t, err, openapi.ErrUndefined)
 	}()
-	s.BodySchema("get", "/things") // GET has no request body
+	s.BodySchema("get", "/things") // GET has no request body.
 }
 
 func TestRef_DeepClonesAndInlines(t *testing.T) {
@@ -150,7 +150,7 @@ func TestRef_DeepClonesAndInlines(t *testing.T) {
 	assert.Equal(t, "object", child.Type, "child not inlined")
 	require.NotNil(t, child.Properties["x"], "child.x missing")
 
-	// Mutating the clone must not affect a fresh Ref of the same component.
+	// Ref returns an independent clone.
 	delete(thing.Properties, "child")
 	again := s.Ref("Thing")
 	assert.NotNil(t, again.Properties["child"], "clone aliased the document")
@@ -186,7 +186,7 @@ func TestOutputObject_NonObjectPanics(t *testing.T) {
 		require.True(t, ok, "panic value should be an error")
 		assert.ErrorIs(t, err, openapi.ErrUndefined)
 	}()
-	s.OutputObject("Count") // integer component, not an object
+	s.OutputObject("Count") // Count is an integer component.
 }
 
 func TestObject(t *testing.T) {
@@ -206,7 +206,7 @@ func TestOutputValue(t *testing.T) {
 	assert.Equal(t, []string{"value"}, s.Required)
 }
 
-// nullableFixture exercises "nullable": true at several nesting depths.
+// nullableFixture includes nullable fields at several depths.
 const nullableFixture = `{
   "paths": {},
   "components": {
@@ -226,7 +226,7 @@ const nullableFixture = `{
   }
 }`
 
-// TestNullable_TypeRewritten checks "nullable" becomes a null type at depth.
+// TestNullable_TypeRewritten checks nullable conversion at each depth.
 func TestNullable_TypeRewritten(t *testing.T) {
 	s, err := openapi.Parse([]byte(nullableFixture))
 	require.NoError(t, err)
@@ -252,7 +252,7 @@ func TestNullable_TypeRewritten(t *testing.T) {
 	assert.ElementsMatch(t, []string{"string", "null"}, item.Types)
 }
 
-// TestNullable_ValidatesNull proves the rewritten schema accepts a JSON null.
+// TestNullable_ValidatesNull checks that converted schemas accept null.
 func TestNullable_ValidatesNull(t *testing.T) {
 	s, err := openapi.Parse([]byte(nullableFixture))
 	require.NoError(t, err)

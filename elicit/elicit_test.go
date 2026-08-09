@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// gateTool registers the two-pass gate: ask on the first call, act on retry.
+// gateTool registers a two-pass gated tool.
 func gateTool(s *mcp.Server, gateID string) {
 	s.AddTool(
 		&mcp.Tool{
@@ -50,7 +50,7 @@ func toolError(err error) *mcp.CallToolResult {
 	return &r
 }
 
-// gateServer wires a fresh server and session answering with action.
+// gateServer creates a session that returns action.
 func gateServer(t *testing.T, action, gateID string) *mcp.ClientSession {
 	t.Helper()
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
@@ -78,7 +78,7 @@ func callGate(
 	)
 }
 
-// The client's answer drives the outcome across a full multi-round-trip call.
+// The client action determines the gated call result.
 func TestGateActions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -118,7 +118,7 @@ func TestGateActions(t *testing.T) {
 	}
 }
 
-// A gate keyed on a custom id completes the same two passes.
+// A custom gate ID completes both passes.
 func TestGateCustomID(t *testing.T) {
 	cs := gateServer(t, "accept", "acme/confirm")
 	res, err := callGate(t, cs)
@@ -130,7 +130,8 @@ func TestAskNoElicitationCapability(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
 
-	cs := mcptest.NewSession(t, s) // no handler → no elicitation capability
+	// NewSession does not advertise elicitation.
+	cs := mcptest.NewSession(t, s)
 
 	res, err := callGate(t, cs)
 	require.NoError(t, err)
@@ -141,7 +142,7 @@ func TestAskNoElicitationCapability(t *testing.T) {
 	require.Contains(t, tc.Text, elicit.ErrNoElicitation.Error())
 }
 
-// A failing client handler aborts the call before the server is asked again.
+// A client handler error stops the retry.
 func TestGateClientHandlerFails(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
@@ -167,8 +168,7 @@ func TestDecideRejectsNonElicitResponse(t *testing.T) {
 	require.ErrorIs(t, err, elicit.ErrElicitationFailed)
 }
 
-// A typed-nil result must not dereference: Decide is exported, and a panic in
-// a tool handler is a process kill (the SDK does not recover).
+// Decide rejects a typed nil result without panicking.
 func TestDecideRejectsTypedNilResult(t *testing.T) {
 	require.NotPanics(t, func() {
 		err := elicit.Decide((*mcp.ElicitResult)(nil))
@@ -176,7 +176,7 @@ func TestDecideRejectsTypedNilResult(t *testing.T) {
 	})
 }
 
-// Ask is exported, so a nil session is its own error, not an SDK panic.
+// Ask returns an error for a nil session.
 func TestAskNilSession(t *testing.T) {
 	require.NotPanics(t, func() {
 		_, err := elicit.Ask(elicit.GateID, nil, nil)

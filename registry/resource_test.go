@@ -89,7 +89,7 @@ func TestRegistry_ResourcesBindWithoutWriteEnabled(t *testing.T) {
 				return resource.NewText("hi"), nil
 			}),
 	})
-	// Write disabled: resources still bind (AccessResource is not gated).
+	// Resources bind when writes are disabled.
 	reg.Bind(s, registry.Enable{Write: false})
 
 	cs := mcptest.NewSession(t, s)

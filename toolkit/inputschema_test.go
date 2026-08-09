@@ -7,7 +7,7 @@ import (
 )
 
 func TestInputSchema(t *testing.T) {
-	// InputSchema derives an object schema from a plain struct input.
+	// InputSchema derives an object schema from a struct.
 	s := InputSchema[echoIn]()
 	require.NotNil(t, s)
 	require.Equal(t, "object", s.Type)

@@ -129,7 +129,7 @@ func TestResource_NilContentErrors(t *testing.T) {
 	s := newServer(t)
 	resource.New(s, "config://nil", "nilres", "x",
 		func(context.Context) (resource.Content, error) {
-			return nil, nil // handler bug: no content, no error
+			return nil, nil // Simulate a handler that returns no content.
 		}).Add()
 
 	cs := mcptest.NewSession(t, s)

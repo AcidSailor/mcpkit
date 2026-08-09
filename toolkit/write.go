@@ -7,12 +7,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AddWrite registers an elicitation-gated write tool; it runs in two passes.
+// AddWrite registers a validated write tool with an elicitation gate.
 func AddWrite[In, Out any](t Tool[In, Out]) {
 	AddWriteFunc(t, t.Gate)
 }
 
-// AddWriteFunc registers a state-mutating tool running callFunc as-is, ungated.
+// AddWriteFunc registers a write handler without validation or elicitation.
 func AddWriteFunc[In, Out any](
 	t Tool[In, Out],
 	callFunc mcp.ToolHandlerFor[In, Out],
@@ -24,10 +24,7 @@ func AddWriteFunc[In, Out any](
 	)
 }
 
-// Gate asks for confirmation on the first pass and calls on the retry; its
-// shape is mcp.ToolHandlerFor, so a custom handler can wrap it. A call whose
-// arguments already carry an answer under the gate id skips the ask entirely
-// — the gate is not an authorization boundary (see package elicit).
+// Gate requests confirmation, then calls the tool on an accepted retry.
 func (t Tool[In, Out]) Gate(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -45,7 +42,7 @@ func (t Tool[In, Out]) Gate(
 	return t.Call(ctx, req, in)
 }
 
-// ask validates in, then builds the confirmation the client must fulfill.
+// ask validates input and builds the confirmation request.
 func (t Tool[In, Out]) ask(
 	ctx context.Context,
 	session *mcp.ServerSession,

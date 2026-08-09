@@ -1,282 +1,197 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for work in this repository.
 
-## Overview
+## Project
 
-`mcpkit` is a Go **library** of shared primitives for building
-MCP servers on the official
+`mcpkit` is a Go library of shared primitives for MCP servers built with the
+official
 [`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
-It doesn't reimplement the MCP protocol; it wraps the SDK with ergonomic
-serving, tool-registration, schema-assembly, and test helpers used across
-`acidsailor` MCP servers.
+It wraps the SDK; it does not implement the MCP protocol.
 
-- Module path: `github.com/acidsailor/mcpkit`
-- Go 1.26
-- The root package exports nothing (see `doc.go`); all functionality lives in
-  subpackages.
-- The library carries no `main`. The one exception is `cmd/mcpbstage`, a
-  build-time CLI helper (not part of the importable API — see Architecture).
+- Module: `github.com/acidsailor/mcpkit`
+- Go: 1.26
+- The root package exports no API.
+- Importable code is in subpackages.
+- `cmd/mcpbstage` is a build-time CLI, not library API.
 
-## Common commands
+## Commands
 
-Tooling is driven by [Task](https://taskfile.dev) (`taskfile.yml`):
+Use [Task](https://taskfile.dev) through `taskfile.yml`:
 
-- `task test` — run all tests (`go test ./...`)
-- `task lint` — formatters + linters **with autofix** (mutates files:
-  `golangci-lint fmt` then `golangci-lint run --fix`)
-- `task ci` — read-only fmt + lint check (`golangci-lint fmt --diff` then
-  `golangci-lint run`); no mutation
-- `task check` — composite: `lint` (mutating) then `test`
-- `task update` — pull latest go-scaffolds template tooling via `uvx copier update`
+- `task test`: run `go test ./...`.
+- `task lint`: format and lint with automatic fixes.
+- `task ci`: run read-only format and lint checks.
+- `task check`: run `task lint` and `task test`.
+- `task update`: update the go-scaffolds template with Copier.
 
-Run a single test directly: `go test ./toolkit/ -run TestName -v`
+Run one test with `go test ./toolkit/ -run TestName -v`.
 
-Linting is golangci-lint **v2** (`.golangci.yaml`): standard linters plus
-`modernize`, with `gofumpt` (extra-rules) and `golines` formatters. **Max line
-length is 80 columns** — keep lines under 80.
+Linting uses golangci-lint v2, `modernize`, `gofumpt`, and `golines`. Keep lines
+at 80 columns or fewer. CI uses
+`acidsailor/go-scaffolds/.github/workflows/go-ci.yml@v1`.
 
-CI runs the reusable workflow `acidsailor/go-scaffolds/.github/workflows/go-ci.yml@v1`
-on push/PR to `main`.
+## Packages
 
-## Architecture
+- `server`: transport selection, serving, and graceful shutdown.
+- `toolkit`: typed tool registration.
+- `resource`: static and URI-template resources.
+- `registry`: server-independent tool and resource descriptors.
+- `elicit`: write-tool confirmation gates.
+- `openapi`: schema assembly from dereferenced OpenAPI documents.
+- `validate`: input validators.
+- `mcptest`: in-memory MCP test sessions.
+- `cmd/mcpbstage`: stages `.mcpb` bundle contents from GoReleaser output.
 
-Subpackages layered on the SDK:
+## Errors
 
-- **`server/`** — wraps an `*mcp.Server` and serves it over a transport.
-- **`toolkit/`** — generic fluent builder for registering tools on an `*mcp.Server`.
-- **`resource/`** — fluent builder for static and URI-template resources on an `*mcp.Server`.
-- **`registry/`** — server-independent tool/resource descriptors bound to a server in one pass.
-- **`elicit/`** — the write-tool elicitation gate and confirmation prompt helpers.
-- **`openapi/`** — assembles per-tool JSON Schemas from a dereferenced OpenAPI document.
-- **`validate/`** — small generic input validators.
-- **`mcptest/`** — in-memory client↔server session helpers for tests.
-- **`cmd/mcpbstage/`** — the sole `main`: a build-time CLI (stdlib + `kong`)
-  that stages an `.mcpb` bundle directory (binaries + version-stamped manifest)
-  from GoReleaser's `dist/` output for `mcpb pack` to validate and zip. Not
-  imported by the library; `kong` is its dependency alone.
+Each package defines its own sentinels in `errors.go`. Do not add a root
+sentinel. Public entry points must wrap the package sentinel and useful context
+with `%w`, so callers can use `errors.Is`.
 
-### Error convention (repo-wide)
+`toolkit` adds the tool name to ordinary handler errors at registration. It
+must return `*jsonrpc.Error` unchanged because the SDK uses its concrete type to
+preserve the JSON-RPC code and data.
 
-There is **no root umbrella sentinel**, deliberately — matching the Go stdlib
-(`io.EOF`, `sql.ErrNoRows` have no `package.Err` parent). Each package declares
-its **own sentinels** in its `errors.go` (e.g. `server.ErrInvalidTransport`,
-`openapi.ErrParse`, `elicit.ErrUserDeclined`, `validate.ErrEmpty`). A public
-entry point wraps its sentinel with detail via `fmt.Errorf("%w: …", ErrX, …)`,
-preserving it for `errors.Is`. When adding an error path: declare the sentinel
-in that package's `errors.go`, wrap it with `%w` plus context at the boundary,
-and don't introduce a cross-package umbrella. `toolkit` wraps the handler at
-registration (`AddReadFunc`/`AddWriteFunc`), custom handlers included, so every
-ordinary error carries the tool name via `%w` and a `validate`/`elicit` sentinel
-raised inside a tool stays matchable. A direct `*jsonrpc.Error` is returned
-unchanged because the SDK uses its concrete type to preserve its code and data.
+## `server`
 
-### `server`
+`server.New` accepts `WithTransport`, `WithShutdownTimeout`, and
+`WithHTTPServer`. `ListenAndServe` validates the configuration, serves until
+the context is canceled, and shuts down gracefully. `Both` runs stdio and HTTP
+concurrently; either transport stopping cancels the other.
 
-`server.New(mcpServer, opts...)` builds a `*Server` configured via functional
-`Option`s (`WithTransport`, `WithShutdownTimeout`, `WithHTTPServer`).
-`ListenAndServe(ctx)` validates config, dispatches on the `Transport` (`Stdio` /
-`HTTP` / `Both`), blocks until `ctx` is cancelled, then shuts down gracefully.
-`Both` runs stdio and HTTP concurrently; either exiting cancels the other.
-`Transport` implements `UnmarshalText` (plus a `ParseTransport`), so
-env/flag/json config loaders can parse it. The exported `MCP` field is an escape
-hatch to the underlying server.
+HTTP configuration belongs to the caller. `HTTP` and `Both` require a complete
+`*http.Server`, including its handler. The package uses its address, timeouts,
+hooks, and TLS configuration unchanged. A non-nil `TLSConfig` selects
+`ListenAndServeTLS`; the configuration must provide certificates.
 
-The package owns no HTTP defaults and provides no handler helper — the `HTTP`
-and `Both` transports require a caller-built `*http.Server` via `WithHTTPServer`
-(else `ErrNoHTTPServer`), served exactly as given: its `Handler`, `Addr`,
-timeouts, `ErrorLog`, `ConnState`, `TLSConfig`, … all used unchanged. Callers
-build the `Handler` themselves with `mcp.NewStreamableHTTPHandler` — wrapping it
-with middleware (auth, CORS, logging) or mounting it in a mux alongside other
-routes (health, metrics); a nil `Handler` returns `ErrNilHandler`, and a
-malformed `Addr` returns `ErrInvalidAddr`.
+The caller constructs the handler with `mcp.NewStreamableHTTPHandler` and may
+add middleware or other routes. Invalid HTTP configuration returns:
 
-The handler's `StreamableHTTPOptions` are the caller's choice, and that choice
-**bounds** which MCP protocol a session can negotiate: `Stateless: true` is a
-*precondition* for `2026-07-28` (the SDK rejects new-protocol requests on a
-stateful handler), while `Stateless: false` caps every session at `2025-11-25`
-via the legacy `initialize` handshake. The client still picks within that bound,
-so a stateless handler serves **both** generations (`JSONResponse` does not
-affect this). Elicitation-gated write tools (`toolkit.AddWrite` /
-`registry.Write`) are served by a different mechanism per generation — on
-`2026-07-28` the confirmation is a multi-round-trip request (SEP-2322) needing
-no retained session, and the client's capabilities ride each request's `_meta`;
-on the legacy protocol the SDK's server-side shim elicits over the live session,
-so a **pre-`2026-07-28` client on a stateless handler gets
-`elicit.ErrNoElicitation`** and cannot run write tools at all. **Prefer
-`{Stateless: true, JSONResponse: true}`**: it serves write tools to current
-clients, scales horizontally without session affinity, and is the only mode
-where the SDK's client-side caching of **list** results (`ttlMs`, SEP-2549) is
-active (tool-call results are not cached). Reach for `Stateless: false` only to
-serve clients predating `2026-07-28` (they cannot retry, and the shim needs a
-live session) or for an `EventStore` aiding stream resumption; stateful sessions
-live in-process, so multi-replica deployments on that path need sticky routing. A
-non-nil `TLSConfig` makes it serve HTTPS via `ListenAndServeTLS` (the config must
-supply its own certificates). Only `WithShutdownTimeout` (the graceful-shutdown
-deadline, not an `http.Server` field) stays the package's concern.
+- `ErrNoHTTPServer` for no server.
+- `ErrNilHandler` for no handler.
+- `ErrInvalidAddr` for a malformed address.
 
-### `toolkit`
+Prefer `mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}`.
+`Stateless: true` permits protocol `2026-07-28`; the client still selects the
+negotiated version. `Stateless: false` limits negotiation to `2025-11-25`.
+`JSONResponse` does not affect negotiation.
 
-A type-safe fluent builder. `New[In, Out](server, name, description,
-inputSchema, call)` infers `In`/`Out` from `call`, so generic type params are
-rarely written at call sites. The input schema is required (the SDK panics on
-nil). Chain optional config, then register:
+Current clients run gated writes over stateless HTTP through multi-round-trip
+input requests. Older clients need stdio or a stateful handler because the SDK
+shim requires a live session. Stateful sessions are in-process; multiple
+replicas require session affinity. SDK list-result caching is active only on
+the stateless path. Tool-call results are not cached.
 
-- `.WithOutputSchema(schema)` — optional; when set the SDK validates structured results.
-- `.WithValidateFunc(f)` — runs on decoded input before the call (and before elicitation for writes).
-- `.WithElicitParamsFunc(f)` — builds the confirmation prompt for write tools.
-- `.WithAnnotations(a)` — sets the tool's hints; see below.
-- `.WithGateID(id)` — overrides the confirmation's input-request key
-  (`elicit.GateID` by default).
-- `AddRead(tool)` — registers a read-only tool.
-  **Panics** if an elicit-params func or a gate id was set (both meaningless
-  for reads).
-- `AddWrite(tool)` — registers a state-mutating tool **gated by MCP
-  elicitation**: asking requires the client to support elicitation (else
-  `ErrNoElicitation`); the call runs only on an `accept` action
-  (`decline`→`ErrUserDeclined`, `cancel`→`ErrUserCanceled`). Without
-  `WithElicitParamsFunc` it still asks, with a default `Run <name>?` prompt.
+## `toolkit`
 
-**Annotations.** Two paths, no merging. Without `WithAnnotations` a tool gets
-its category's defaults (read: read-only + idempotent; write: destructive +
-non-idempotent). With it, the hints are the caller's to own **whole**: checked
-against the category, then used verbatim, nothing filled in. A write setting only a `Title`
-therefore omits `destructiveHint`, which the spec already reads as `true`, so
-that omission is not a safety hole.
+`New` returns a value builder and infers input and output types from the call
+function. The input schema is required. Use these options before registration:
 
-The category owns `ReadOnlyHint` — the same choice that decides whether the gate
-wraps the handler and, through `registry.Access`, whether `Enable.Write` binds
-the tool at all. Contradictions **panic at registration** (at `Bind` when going
-through `registry`), wrapped with the tool name: `ErrReadOnlyMismatch` when
-`ReadOnlyHint` disagrees with `AddRead`/`AddWrite`, `ErrDestructiveRead` for
-`DestructiveHint` **true** on a read (`new(false)` is fine — it is the read
-default).
+- `WithOutputSchema`
+- `WithValidateFunc`
+- `WithElicitParamsFunc`
+- `WithAnnotations`
+- `WithGateID`
 
-Consequence of the SDK's types: `ReadOnlyHint` is a plain `bool`, so a **read**
-passing annotations must spell out `ReadOnlyHint: true` — an unset one is
-indistinguishable from an explicit `false` and is rejected rather than silently
-corrected. `toolkit/errors.go` holds these sentinels plus `ErrElicitOnRead`,
-`ErrGateIDOnRead`, and the `elicit` re-exports.
+`AddRead` registers a validated read tool. It panics if elicitation or a gate ID
+is configured. `AddWrite` registers a validated, elicitation-gated write tool.
+Without a custom prompt, it asks `Run <name>?`.
 
-A gated write **runs its handler twice** per call — once to ask (`elicit.Ask`
-returns an input-required result), once to act after the client retries with the
-answer (read off `req.Params.InputResponses[gateID]`, then `elicit.Decide`). The
-validator therefore runs on both passes and **must be side-effect free**;
-`callFunc` runs only on the second.
+Default read annotations are read-only and idempotent. Default write annotations
+are destructive and non-idempotent. `WithAnnotations` replaces the complete
+default set; it does not merge fields. `ReadOnlyHint` must match the access
+category. A read annotation must set `ReadOnlyHint: true` because the SDK uses a
+plain `bool`. A read must not set `DestructiveHint: true`. Conflicts panic with
+`ErrReadOnlyMismatch` or `ErrDestructiveRead`.
 
-**The gate is not an authorization boundary.** A call arriving with an answer
-already under the gate id skips the ask entirely, so it proves a confirmation
-was *reported*, never that one was requested or shown; `RequestState` is left
-unsigned, so the retry's arguments are not bound to the ask either. Deliberate —
-the client renders the prompt, so a hostile one owns the answer regardless. See
-`elicit/doc.go`.
+A gated handler runs twice: once to ask and once after the client retries. The
+validator runs on both passes and must not have side effects. The call function
+runs only after acceptance.
 
-`AddReadFunc(tool, callFunc)` / `AddWriteFunc(tool, callFunc)` are the
-lower-level variants that register a custom `mcp.ToolHandlerFor[In, Out]` as-is
-(keeping the Read/Write annotations): `AddReadFunc` skips input validation,
-`AddWriteFunc` runs whatever it is given. `AddRead`/`AddWrite` are built on
-them, passing the two exported default handlers — `Call` (validate, then call)
-and `Gate` (the two-pass confirmation) — which a custom handler can wrap to keep
-validation or gating instead of reimplementing either; a handler wrapping
-neither is ungated. Bind the method value **after** the chain is complete: it
-captures the builder as it was.
+The gate is not an authorization boundary. A request that already contains a
+response under the gate ID bypasses the prompt. `RequestState` is unsigned, so
+the retry is not bound to the original arguments. Use authentication and
+idempotency controls where required.
 
-`toolkit` re-exports the `elicit` sentinels (`ErrUserDeclined`,
-`ErrUserCanceled`, `ErrNoElicitation`, `ErrUnexpectedElicitAction`,
-`ErrElicitationFailed`) so callers need not import `elicit`.
+`AddReadFunc` and `AddWriteFunc` register custom handlers without adding
+validation or gating. Custom handlers can wrap the exported `Call` and `Gate`
+methods. Bind method values after the builder chain is complete because the
+builder is a value.
 
-`InputSchema[In]()` reflects a schema from a plain Go struct via
-`jsonschema.For`, panicking on failure like `mcp.AddTool` does.
+MCP structured results require an object root. Use `Items`, `Value`,
+`WrapItems`, or `WrapValue` for slice and scalar results. `Items.MarshalJSON`
+encodes a nil slice as `[]`.
 
-`Tool` is a value type — builder methods return a copy, not a pointer.
+`toolkit` re-exports the `elicit` sentinels.
 
-Handlers are marshalled as-is (no auto-wrapping), so a handler returning a bare
-slice or scalar would violate MCP's object-root `structuredContent` contract.
-`result.go` provides envelopes: `Items[T]`/`Value[T]` (shapes `{"items":…}` /
-`{"value":…}`) and the `WrapItems`/`WrapValue` adapters that consume a
-`(slice|scalar, error)` pair directly (e.g. `WrapItems(client.List(ctx))`).
-`Items.MarshalJSON` normalizes a nil slice to `[]` so an array-typed output
-schema still accepts it.
+## `resource`
 
-### `resource`
+`New` builds a static resource. `NewTemplate` builds an RFC 6570 resource
+template and supplies the concrete URI and extracted `Vars` to its handler.
+Both are value builders and register with `Add`.
 
-A value-type fluent builder mirroring `toolkit`, for MCP **resources**.
-`New(server, uri, name, description, read)` registers a **static** resource;
-`read` is a typed `func(ctx) (Content, error)` — no raw SDK request/result.
-`NewTemplate(server, uriTemplate, name, description, read)` registers a
-**dynamic** (URI-template) resource whose `read` also receives the concrete URI
-and a `Vars` of the extracted RFC 6570 variables (the SDK extracts none —
-`template.go` parses the template once and `Match`es per read). Chain
-`WithMIMEType` / `WithTitle` / `WithDescription` / `WithAnnotations` (and
-`WithSize`, static only), then `Add()`. `Add` **panics** on a malformed URI
-(one that fails `url.Parse`) and `NewTemplate` on an invalid RFC 6570 template,
-surfacing the SDK panic like `toolkit.InputSchema`.
+Configuration options are `WithMIMEType`, `WithTitle`, `WithDescription`, and
+`WithAnnotations`. `WithSize` applies only to static resources.
 
-`content.go` provides `Content` envelopes so handlers don't build
-`[]*mcp.ResourceContents` by hand: `Text` (default `text/plain`), `Blob`
-(`application/octet-stream`), `JSON[T]` (always `application/json`, ignoring the
-declared MIME), and `Raw` (verbatim escape hatch — caller owns each block, must
-be non-empty), with `NewText`/`NewBlob`/`NewJSON`; the URI and a fallback MIME
-are filled by the package. `Vars` exposes `Get`/`Lookup`/`Has`/`List`/`Int`
-(`Lookup` is the comma-ok form distinguishing absent from present-but-empty; a
-map, not a typed struct — templates have no SDK decode).
+Handlers return one of these `Content` forms:
 
-Sentinels (`errors.go`): `ErrNotFound` and `ErrTemplateMismatch` are
-**return-side** sentinels — returning either from a read func yields
-`mcp.ResourceNotFoundError` on the wire — `jsonrpc.CodeInvalidParams` since SDK
-v1.7.0, previously `-32002` (cross-transport
-`errors.Is` is not promised, like the `elicit` sentinels); `ErrInvalidVars`
-wraps a failed `Vars.Int`; `ErrNoContent` is returned when a read func produces
-no content (a nil `Content` or an empty `Raw`), so a handler bug surfaces as a
-real error, not a silent empty read. **Subscriptions are not yet supported** —
-`list-changed` is free (the SDK fires it on `AddResource`/`RemoveResources`), but
-subscriptions need `SubscribeHandler`/`UnsubscribeHandler` set at
-`mcp.NewServer` construction, which the caller owns.
+- `Text`: default `text/plain`.
+- `Blob`: default `application/octet-stream`.
+- `JSON`: always `application/json`.
+- `Raw`: unchanged SDK content blocks; the caller supplies all fields.
 
-### `registry`
+`NewText`, `NewBlob`, and `NewJSON` construct the common forms. `Raw` must not
+be empty. The package supplies the URI and fallback MIME type except for `Raw`.
 
-Collects tool and resource registrations as server-independent descriptors and
-binds them to a server in one pass, so the catalogue can be enumerated/filtered
-without a live server. `registry.Read(...)` / `registry.Write(...)` mirror the
-toolkit builder (`WithOutputSchema` / `WithValidateFunc` / `WithElicitFunc` /
-`WithToolAnnotations` / `WithGateID` options — the tool hints are
-`WithToolAnnotations` because `WithAnnotations` is taken by the resource
-options, which carry an `*mcp.Annotations`);
-`registry.Resource(...)` / `registry.ResourceTemplate(...)` mirror the
-resource builder (`WithMIMEType` / `WithTitle` / `WithSize` / `WithAnnotations`
-options) — all return a `Registration`. `New(groups...)` flattens
-`[]Registration` slices into an ordered `Registry`, preserving order.
-`(Registry).Bind(s, Enable{Write: bool})` installs registrations; `AccessWrite`
-tools are skipped unless `Enable.Write` is true, while `AccessResource`
-resources/templates (read-only) **always bind**.
+Static `Add` panics on an invalid URI. `NewTemplate` panics on an invalid
+template. `ErrNotFound` and `ErrTemplateMismatch` become the SDK resource
+not-found error on the wire. `ErrInvalidVars` wraps failed `Vars.Int`
+conversion. `ErrNoContent` reports nil content or an empty `Raw`.
 
-### `openapi`
+The package does not configure resource subscriptions. Configure
+`SubscribeHandler` and `UnsubscribeHandler` when constructing the SDK server.
+SDK list-change notifications work through resource add and remove operations.
 
-Input is the JSON of a **dereferenced** OpenAPI 3.1 document (every `$ref`
-inlined, `components.schemas` retained). `Parse` decodes it once (returning
-`ErrParse` on bad JSON; it normalizes OpenAPI 3.0 `nullable: true` to a
-null-permitting type). The returned `*Schemas` then composes self-contained
-schemas: `ParamsSchema`/`ParamSchema` (optionally a named subset), `BodySchema`
-(application/json request body), `Ref` (named component), `OutputObject` /
-`OutputItems` / `OutputValue` (response wrappers), and `Summary`. Returned
-schemas are deep-cloned, so callers and the SDK may mutate them freely.
-**Methods panic (wrapping `ErrUndefined`)** on an unknown
-name/path/operation/parameter — static, programmer-level errors; only `Parse`
-returns an error.
+## `registry`
 
-### `validate`
+`Read`, `Write`, `Resource`, and `ResourceTemplate` create server-independent
+`Registration` values. `New` flattens groups and preserves order. `Bind`
+installs entries on a server. `Enable.Write` controls write tools; resources
+always bind.
 
-`RequireNonEmpty(field, value)` for strings (wraps `ErrEmpty`) and
-`RequireNonZero[T comparable](field, value)` for non-string required inputs such
-as numeric ids (wraps `ErrZero`). Both name the offending field.
+Tool options mirror `toolkit`. Use `WithToolAnnotations` for tool hints because
+`WithAnnotations` configures resource annotations. Resource options mirror the
+`resource` builder.
 
-## Testing
+## `openapi`
 
-Tests use `testify` (`require`). The exported `mcptest` package drives a real
-client↔server pair over the SDK's in-memory transport: `NewSession(tb, server)`
-and `NewSessionWithElicitation(tb, server, handler)` (both take a `testing.TB`).
-`NewSession` advertises no elicitation capability, so elicitation-gated write
-tools fail under it — use `NewSessionWithElicitation` for those. Use these to
-exercise registered tools end-to-end rather than calling internals directly. For
-resources, `ReadResourceText`/`ReadResourceBlob`/`ReadResourceJSON[T]` and
-`ListResourceURIs`/`ListResourceTemplateURIs` drive reads/listing over a session.
+`Parse` accepts JSON for a dereferenced OpenAPI document. Keep
+`components.schemas`; inline all `$ref` values. It also converts OpenAPI 3.0
+`nullable: true` fields to null-permitting JSON Schema types.
+
+`Schemas` provides `ParamsSchema`, `ParamSchema`, `BodySchema`, `Ref`,
+`OutputObject`, `OutputItems`, `OutputValue`, and `Summary`. Returned schemas
+are independent clones.
+
+Only `Parse` returns an error. Accessors panic with `ErrUndefined` for unknown
+paths, operations, parameters, or components because these are configuration
+errors.
+
+## `validate`
+
+- `RequireNonEmpty` rejects blank strings with `ErrEmpty`.
+- `RequireNonZero` rejects zero comparable values with `ErrZero`.
+
+Both validators include the field name in the wrapped error.
+
+## Tests
+
+Tests use `testify/require`. Prefer end-to-end tests through `mcptest`:
+
+- `NewSession` advertises no elicitation capability.
+- `NewSessionWithElicitation` installs an elicitation handler.
+- `ReadResourceText`, `ReadResourceBlob`, and `ReadResourceJSON` read resources.
+- `ListResourceURIs` and `ListResourceTemplateURIs` test listings.
+
+Use `NewSessionWithElicitation` for gated write tools.

@@ -12,8 +12,7 @@ import (
 	"github.com/acidsailor/mcpkit/openapi"
 )
 
-// bigID is a real Alor order id (~2e18) that loses its low digits when passed
-// through a float64 — the exact value the string codec must preserve.
+// bigID exceeds the exact integer range of a float64.
 const bigID = 2011734313187604080
 
 func TestInt64String_UnmarshalString_PreservesBigID(t *testing.T) {
@@ -23,9 +22,7 @@ func TestInt64String_UnmarshalString_PreservesBigID(t *testing.T) {
 }
 
 func TestInt64String_UnmarshalRejectsBareNumber(t *testing.T) {
-	// Any bare JSON number is rejected — the guard is unconditional, not
-	// range-driven: a small in-range 12 is refused just like a huge id that a
-	// float64 client has already truncated.
+	// All bare JSON numbers are invalid, regardless of range.
 	for _, in := range []string{`12`, `2011734313187604080`} {
 		var v openapi.Int64String
 		assert.Error(t, json.Unmarshal([]byte(in), &v), "input %s", in)
@@ -33,9 +30,7 @@ func TestInt64String_UnmarshalRejectsBareNumber(t *testing.T) {
 }
 
 func TestInt64String_UnmarshalRejectsInvalid(t *testing.T) {
-	// The pattern (^-?[0-9]+$) is looser than the decoder by design: an
-	// overflowing digit run matches the pattern yet ParseInt rejects it. Both
-	// int64 bounds+1 must fail loud.
+	// ParseInt enforces the range that the schema pattern cannot express.
 	invalid := []string{
 		`null`, `""`, `"12x"`, `"1.5"`, `" 12"`,
 		`"9223372036854775808"`,  // math.MaxInt64 + 1

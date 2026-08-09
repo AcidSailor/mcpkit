@@ -8,8 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// readFirst reads uri and returns its first content block, failing the test on
-// error or when the read returns no contents.
+// readFirst returns the first content block or fails the test.
 func readFirst(
 	tb testing.TB,
 	cs *mcp.ClientSession,

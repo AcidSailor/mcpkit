@@ -112,7 +112,7 @@ func TestReadCallsHandler(t *testing.T) {
 	require.False(t, res.IsError)
 }
 
-// Caller hints reach the wire; the access category still owns ReadOnlyHint.
+// Custom hints reach the wire after access validation.
 func TestWithToolAnnotationsReachTheWire(t *testing.T) {
 	w := registry.Write(
 		"w", "", toolkit.InputSchema[echoIn](), echo,
@@ -160,8 +160,7 @@ func TestReadOnlyHintOnWritePanicsAtBind(t *testing.T) {
 	)
 }
 
-// WithOutputSchema and WithValidateFunc must survive Bind: the schema reaches
-// the wire, and the validator can fail the call.
+// Output schema and validation options survive Bind.
 func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
 	r := registry.Read(
 		"echo", "", toolkit.InputSchema[echoIn](), echo,
@@ -193,7 +192,7 @@ func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
 	require.True(t, res.IsError, "the validator must fail the call")
 }
 
-// The gate id must survive Bind and key the real confirmation round trip.
+// The gate ID survives Bind and the confirmation round trip.
 func TestWithGateIDDrivesTheConfirmation(t *testing.T) {
 	called := false
 	w := registry.Write(

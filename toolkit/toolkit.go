@@ -71,8 +71,7 @@ func (t Tool[In, Out]) WithElicitParamsFunc(
 	return t
 }
 
-// WithAnnotations sets the tool's hints, used verbatim. ReadOnlyHint must
-// match the access category (AddRead / AddWrite) or registration panics.
+// WithAnnotations replaces the default hints and requires matching access.
 func (t Tool[In, Out]) WithAnnotations(
 	a mcp.ToolAnnotations,
 ) Tool[In, Out] {
@@ -80,9 +79,7 @@ func (t Tool[In, Out]) WithAnnotations(
 	return t
 }
 
-// WithGateID overrides the key naming the write tool's confirmation request.
-// Ask and read must agree on it: a handler reading under a different key never
-// sees the answer and re-asks until the SDK's retry cap. Panics on a read.
+// WithGateID sets the confirmation key and panics when used with AddRead.
 func (t Tool[In, Out]) WithGateID(id string) Tool[In, Out] {
 	t.gateID = id
 	return t
@@ -96,9 +93,7 @@ func (t Tool[In, Out]) gate() string {
 	return t.gateID
 }
 
-// annotate returns the category's default hints, or the caller's verbatim once
-// checked against the category. Hints are the caller's to own whole: a write
-// leaving DestructiveHint unset omits it, which the spec already reads as true.
+// annotate returns validated custom hints or category defaults.
 func (t Tool[In, Out]) annotate(readOnly bool) *mcp.ToolAnnotations {
 	if t.annotations == nil {
 		return &mcp.ToolAnnotations{
@@ -139,8 +134,7 @@ func (t Tool[In, Out]) wrap(err error) error {
 	return fmt.Errorf("%s: %w", t.name, err)
 }
 
-// wrapHandler names the tool in every error the registered handler returns,
-// so the wrap happens once, at the boundary, for custom handlers too.
+// wrapHandler adds the tool name to non-JSON-RPC errors.
 func (t Tool[In, Out]) wrapHandler(
 	h mcp.ToolHandlerFor[In, Out],
 ) mcp.ToolHandlerFor[In, Out] {

@@ -14,16 +14,12 @@ type Vars struct {
 	vals uritemplate.Values
 }
 
-// Get returns the string value of name, or "" if absent or not a string var.
-// Get alone cannot distinguish an absent variable from a present-but-empty one
-// — use Lookup or Has for that.
+// Get returns a string value or "" when the variable is absent or not a string.
 func (v Vars) Get(name string) string {
 	return v.vals.Get(name).String()
 }
 
-// Lookup returns the string value of name and whether it was present, in the
-// comma-ok idiom (cf. os.LookupEnv), so callers can tell an absent variable
-// from a present-but-empty one.
+// Lookup returns a string value and reports whether the variable is present.
 func (v Vars) Lookup(name string) (string, bool) {
 	val := v.vals.Get(name)
 	return val.String(), val.Valid()
@@ -49,17 +45,14 @@ func (v Vars) Int(name string) (int, error) {
 	return n, nil
 }
 
-// TemplateReadFunc reads a templated resource for a concrete URI and the
-// variables extracted from it.
+// TemplateReadFunc reads a concrete URI and its template variables.
 type TemplateReadFunc func(
 	ctx context.Context,
 	uri string,
 	vars Vars,
 ) (Content, error)
 
-// Template is a fluent registration builder for a URI-template resource,
-// distinct from the SDK's mcp.ResourceTemplate. It is a value type — builder
-// methods return a copy.
+// Template is a value builder for an RFC 6570 resource template.
 type Template struct {
 	server      *mcp.Server
 	uriTemplate string
@@ -73,9 +66,7 @@ type Template struct {
 	annotations *mcp.Annotations
 }
 
-// NewTemplate starts a templated-resource registration. It parses uriTemplate
-// immediately and panics if the template is invalid (RFC 6570), mirroring the
-// SDK's AddResourceTemplate and toolkit.InputSchema panic conventions.
+// NewTemplate creates a builder and panics if uriTemplate is invalid.
 func NewTemplate(
 	server *mcp.Server,
 	uriTemplate, name, description string,
@@ -119,9 +110,7 @@ func (t Template) WithAnnotations(a *mcp.Annotations) Template {
 	return t
 }
 
-// Add registers the template on the server. The template was already parsed
-// and validated by NewTemplate, so any malformed-template panic fires there,
-// not here.
+// Add registers the template on the server.
 func (t Template) Add() {
 	tmpl := &mcp.ResourceTemplate{
 		Name:        t.name,

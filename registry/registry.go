@@ -6,7 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Access classifies a tool read-only or state-mutating; Bind gates writes.
+// Access classifies a registration and determines whether Bind gates it.
 type Access int
 
 const (
@@ -16,7 +16,7 @@ const (
 	AccessResource
 )
 
-// Registration is a server-independent description of one tool.
+// Registration describes one tool or resource without a server.
 type Registration struct {
 	Name   string
 	Access Access
@@ -31,7 +31,7 @@ type Enable struct {
 // Registry is an ordered, server-independent collection of registrations.
 type Registry []Registration
 
-// New flattens tool-group slices into a Registry, preserving order.
+// New flattens registration groups into a Registry and preserves order.
 func New(groups ...[]Registration) Registry {
 	return slices.Concat(groups...)
 }

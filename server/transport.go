@@ -5,11 +5,11 @@ import "fmt"
 // Transport selects the MCP transport mechanism.
 type Transport string
 
-// Supported transports.
+// Supported transport values.
 const (
-	Stdio Transport = "stdio" // stdin/stdout
-	HTTP  Transport = "http"  // streamable HTTP
-	Both  Transport = "both"  // stdio + HTTP concurrently
+	Stdio Transport = "stdio" // Stdio uses standard input and output.
+	HTTP  Transport = "http"  // HTTP uses streamable HTTP.
+	Both  Transport = "both"  // Both runs Stdio and HTTP concurrently.
 )
 
 // ParseTransport parses s, wrapping ErrInvalidTransport for a bad value.

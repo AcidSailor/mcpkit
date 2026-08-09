@@ -9,7 +9,7 @@ import (
 )
 
 func TestText_MIMEFallback(t *testing.T) {
-	// Explicit MIME wins.
+	// Content MIME has highest priority.
 	c, err := Text{Text: "hi", MIME: "text/markdown"}.
 		contents("u", "text/html")
 	require.NoError(t, err)
@@ -18,11 +18,11 @@ func TestText_MIMEFallback(t *testing.T) {
 	assert.Equal(t, "text/markdown", c[0].MIMEType)
 	assert.Equal(t, "hi", c[0].Text)
 
-	// Falls back to the resource's declared MIME.
+	// Declared resource MIME is the first fallback.
 	c, _ = NewText("hi").contents("u", "text/html")
 	assert.Equal(t, "text/html", c[0].MIMEType)
 
-	// Then to text/plain.
+	// MIMEText is the final fallback.
 	c, _ = NewText("hi").contents("u", "")
 	assert.Equal(t, "text/plain", c[0].MIMEType)
 }
@@ -43,7 +43,7 @@ func TestJSON_MarshalAndFailure(t *testing.T) {
 	assert.Equal(t, "application/json", c[0].MIMEType)
 	assert.JSONEq(t, `{"n":1}`, c[0].Text)
 
-	// A channel cannot be marshalled: the error surfaces honestly.
+	// JSON marshal errors propagate.
 	_, err = JSON[chan int]{Value: make(chan int)}.contents("u", "")
 	require.Error(t, err)
 }

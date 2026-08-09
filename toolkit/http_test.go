@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// statelessSession serves s over a stateless streamable HTTP handler and
-// connects a real HTTP client to it, wiring elicit as its handler.
+// statelessSession connects an HTTP client to a stateless handler.
 func statelessSession(
 	t *testing.T,
 	s *mcp.Server,
@@ -43,8 +42,7 @@ func statelessSession(
 	return cs
 }
 
-// The headline claim of the v1.7.0 migration: a stateless HTTP handler serves
-// an elicitation-gated write, because the retry needs no retained session.
+// A stateless HTTP handler supports a gated write without session state.
 func TestAddWrite_StatelessHTTP(t *testing.T) {
 	called := false
 	prompted := ""
@@ -75,12 +73,12 @@ func TestAddWrite_StatelessHTTP(t *testing.T) {
 	assert.Equal(t, "confirm?", prompted, "the prompt must reach the client")
 }
 
-// Without the capability the gate still refuses, stateless or not.
+// A stateless client without elicitation cannot run a gated write.
 func TestAddWrite_StatelessHTTPNoElicitation(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
 
-	cs := statelessSession(t, s, nil) // no ElicitationHandler
+	cs := statelessSession(t, s, nil) // No elicitation handler.
 
 	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
 		Name:      "do",
@@ -92,7 +90,7 @@ func TestAddWrite_StatelessHTTPNoElicitation(t *testing.T) {
 	assert.False(t, called, "the write must not run")
 }
 
-// A read tool needs no session either, guarding the same stateless path.
+// A stateless client can run a read tool.
 func TestAddRead_StatelessHTTP(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	AddRead(New(s, "echo", "echoes", objectSchema(),

@@ -15,8 +15,7 @@ type ParamsFunc[In any] func(
 // DescribeFunc renders a confirmation message from a decoded In request.
 type DescribeFunc[In any] func(ctx context.Context, in In) (string, error)
 
-// emptyObject is the schema a fieldless confirmation must carry: clients
-// reject an omitted requestedSchema.properties (e.g. Claude Code).
+// emptyObject includes the properties map required by clients.
 func emptyObject() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:       "object",

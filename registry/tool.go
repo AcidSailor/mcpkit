@@ -34,9 +34,7 @@ func WithElicitFunc[In any](f toolkit.ElicitParamsFunc[In]) Option[In] {
 	return func(o *options[In]) { o.elicit = f }
 }
 
-// WithToolAnnotations sets the tool's hints, used verbatim; ReadOnlyHint must
-// match Read/Write or Bind panics. Named apart from WithAnnotations, which
-// carries a resource's mcp.Annotations.
+// WithToolAnnotations replaces tool hints and requires matching access.
 func WithToolAnnotations[In any](a mcp.ToolAnnotations) Option[In] {
 	return func(o *options[In]) { o.annotations = &a }
 }

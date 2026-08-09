@@ -15,8 +15,7 @@ const (
 // GateID is the default key naming the write-tool confirmation request.
 const GateID = "io.github.acidsailor.mcpkit/confirm"
 
-// Ask builds the input-required result asking the client to confirm. It proves
-// nothing about a call that already carries an answer; see the package doc.
+// Ask returns an input-required confirmation result.
 func Ask(
 	gateID string,
 	session *mcp.ServerSession,

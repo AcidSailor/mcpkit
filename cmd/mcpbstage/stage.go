@@ -1,8 +1,4 @@
-// Package main implements mcpbstage, a build-time helper that assembles the
-// staging directory an .mcpb bundle is packed from. It reads GoReleaser's dist/
-// output plus the mcpb manifest, then lays out <out>/manifest.json (with the
-// release version stamped in) and <out>/server/<binary> for every platform the
-// manifest declares. The real `mcpb pack` still validates and zips the result.
+// Package main stages GoReleaser output for mcpb pack.
 package main
 
 import (
@@ -15,12 +11,12 @@ import (
 	"strings"
 )
 
-// metadata mirrors the fields we need from GoReleaser's dist/metadata.json.
+// metadata contains the used fields from GoReleaser metadata.
 type metadata struct {
 	Version string `json:"version"`
 }
 
-// artifact mirrors the fields we need from each dist/artifacts.json entry.
+// artifact contains the used fields from a GoReleaser artifact.
 type artifact struct {
 	Path   string `json:"path"`
 	Goos   string `json:"goos"`
@@ -40,16 +36,15 @@ type manifestServer struct {
 	} `json:"server"`
 }
 
-// binaryTarget is one platform binary the manifest asks the bundle to carry.
+// binaryTarget identifies one platform binary in the bundle.
 type binaryTarget struct {
-	base   string // in-bundle filename, e.g. "foo-linux-amd64" (may end .exe)
-	name   string // GoReleaser binary name, e.g. "foo" (base minus -goos-goarch)
+	base   string // Bundle filename, optionally ending in .exe.
+	name   string // GoReleaser binary name without OS and architecture.
 	goos   string
 	goarch string
 }
 
-// Stage assembles outDir from the GoReleaser output in distDir and the mcpb
-// manifest at manifestPath. It is the whole tool; main() only parses flags.
+// Stage assembles an mcpb directory from GoReleaser output and a manifest.
 func Stage(distDir, manifestPath, outDir string) error {
 	meta, err := readMetadata(filepath.Join(distDir, "metadata.json"))
 	if err != nil {
@@ -77,8 +72,7 @@ func Stage(distDir, manifestPath, outDir string) error {
 		return fmt.Errorf("create out dir: %w", err)
 	}
 
-	// Copy flat manifest siblings (e.g. icon.png), then overwrite with the
-	// stamped manifest.json.
+	// Copy manifest assets before replacing manifest.json with its stamped form.
 	if err := copyTree(filepath.Dir(manifestPath), outDir); err != nil {
 		return err
 	}
@@ -137,17 +131,13 @@ func readArtifacts(p string) ([]artifact, error) {
 	return arts, nil
 }
 
-// parseTargets extracts the platform binaries the manifest declares from
-// mcp_config.command and every platform_overrides.<plat>.command. A command
-// present but empty is a malformed manifest and fails loudly, naming the
-// platform, rather than silently dropping that platform from the bundle.
+// parseTargets returns the unique binaries declared by the manifest.
 func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 	var ms manifestServer
 	if err := json.Unmarshal(manBytes, &ms); err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
-	// Keep the platform label alongside each command so an empty command can
-	// name which declaration is at fault. The base command has no override key.
+	// Keep labels so an empty command identifies its manifest field.
 	cmds := []struct{ plat, cmd string }{
 		{"mcp_config.command", ms.Server.MCPConfig.Command},
 	}
@@ -163,7 +153,7 @@ func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 		if c.cmd == "" {
 			return nil, fmt.Errorf("manifest %s is empty", c.plat)
 		}
-		base := path.Base(c.cmd) // last element: drops "${__dirname}/server/"
+		base := path.Base(c.cmd) // Remove the manifest directory prefix.
 		if seen[base] {
 			continue
 		}
@@ -182,9 +172,7 @@ func parseTargets(manBytes []byte) ([]binaryTarget, error) {
 	return targets, nil
 }
 
-// splitTarget parses "<name>-<goos>-<goarch>[.exe]" into its name, goos and
-// goarch by taking the last two dash-separated tokens (robust to dashes in
-// <name>); everything before them is the GoReleaser binary name.
+// splitTarget parses the final OS and architecture fields in a binary name.
 func splitTarget(base string) (name, goos, goarch string, err error) {
 	trimmed := strings.TrimSuffix(base, ".exe")
 	parts := strings.Split(trimmed, "-")
@@ -200,11 +188,7 @@ func splitTarget(base string) (name, goos, goarch string, err error) {
 	return name, goos, goarch, nil
 }
 
-// findArtifact resolves the source binary for t. It matches on goos/goarch and,
-// when a build emits several Binary artifacts for one platform (multiple
-// GoReleaser builds, or goamd64/goarm variants), disambiguates by the binary
-// name t asks for. It refuses to guess: zero or an irreducibly-ambiguous set of
-// matches is an error, never a silently-wrong binary staged under t.base.
+// findArtifact resolves one exact binary artifact for a target.
 func findArtifact(arts []artifact, t binaryTarget) (string, error) {
 	var matches []artifact
 	for _, a := range arts {
@@ -222,7 +206,7 @@ func findArtifact(arts []artifact, t binaryTarget) (string, error) {
 	case 1:
 		return matches[0].Path, nil
 	}
-	// >1 match: narrow to the binary the manifest names (multiple builds).
+	// Disambiguate multiple platform builds by binary name.
 	var named []artifact
 	for _, a := range matches {
 		if binaryName(a.Path) == t.name {
@@ -245,15 +229,12 @@ func findArtifact(arts []artifact, t binaryTarget) (string, error) {
 	)
 }
 
-// binaryName is the GoReleaser binary name for an artifact path: its last
-// element with any ".exe" suffix removed, to compare against binaryTarget.name.
+// binaryName returns the artifact base name without an .exe suffix.
 func binaryName(p string) string {
 	return strings.TrimSuffix(filepath.Base(p), ".exe")
 }
 
-// stampVersion sets the top-level "version" field, preserving all other keys
-// (the map round-trip reorders keys alphabetically — harmless, mcpb pack and
-// the runtime read by key, not order).
+// stampVersion updates version while preserving all other manifest fields.
 func stampVersion(manBytes []byte, version string) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(manBytes, &doc); err != nil {
@@ -287,16 +268,10 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Chmod(
-		dst,
-		mode,
-	) // enforce mode even if a prior file/umask interfered
+	return os.Chmod(dst, mode)
 }
 
-// copyTree copies the immediate files of src into dst. mcpb/ holds manifest.json
-// plus optional flat assets, so non-recursive is sufficient; a nested directory
-// is an unsupported layout and fails loudly rather than being silently dropped
-// from the bundle.
+// copyTree copies a flat asset directory and rejects nested directories.
 func copyTree(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {

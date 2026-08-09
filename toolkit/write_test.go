@@ -26,7 +26,7 @@ func writeServer(t *testing.T, called *bool) *mcp.Server {
 	return s
 }
 
-// answering replies to every confirmation with action.
+// answering replies to each confirmation with action.
 func answering(action string) func(
 	context.Context, *mcp.ElicitRequest,
 ) (*mcp.ElicitResult, error) {
@@ -38,7 +38,7 @@ func answering(action string) func(
 	}
 }
 
-// callDo drives the "do" tool with a single string argument.
+// callDo calls the do tool with one string argument.
 func callDo(
 	t *testing.T,
 	cs *mcp.ClientSession,
@@ -50,8 +50,7 @@ func callDo(
 	})
 }
 
-// errorText renders a result's first text block, or "" — for asserting which
-// sentinel surfaced and for failure messages.
+// errorText returns the first text block or an empty string.
 func errorText(res *mcp.CallToolResult) string {
 	if len(res.Content) == 0 {
 		return ""
@@ -65,7 +64,7 @@ func errorText(res *mcp.CallToolResult) string {
 
 func TestAddWrite_NoElicitationCapability(t *testing.T) {
 	s := writeServer(t, nil)
-	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
+	cs := newTestMCPSession(t, s) // The client has no elicitation handler.
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	assert.True(
@@ -111,7 +110,7 @@ func TestAddWrite_Cancel(t *testing.T) {
 func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	// AddWriteFunc skips elicit.Gate, so the write runs without elicitation.
+	// AddWriteFunc runs without elicit.Gate.
 	AddWriteFunc(
 		New(s, "do", "does", objectSchema(),
 			func(_ context.Context, in echoIn) (echoOut, error) {
@@ -128,7 +127,7 @@ func TestAddWriteFunc_RunsWithoutElicitation(t *testing.T) {
 		},
 	)
 
-	cs := newTestMCPSession(t, s) // client has no ElicitationHandler
+	cs := newTestMCPSession(t, s) // The client has no elicitation handler.
 	res, err := callDo(t, cs)
 	require.NoError(t, err)
 	require.False(t, res.IsError, "handler must run without elicitation")
@@ -164,7 +163,7 @@ func TestAddWrite_ValidateBeforeElicit(t *testing.T) {
 	assert.False(t, elicited, "validation must run before elicitation")
 }
 
-// A gated call runs the handler twice: ask, then act. The write happens once.
+// A gated call asks once and writes once.
 func TestAddWrite_TwoPasses(t *testing.T) {
 	var validated, called int
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
@@ -187,7 +186,7 @@ func TestAddWrite_TwoPasses(t *testing.T) {
 	assert.Equal(t, 1, called, "the write runs once")
 }
 
-// A prompt builder that fails aborts the call before it asks or writes.
+// A prompt error prevents elicitation and mutation.
 func TestAddWrite_ElicitParamsError(t *testing.T) {
 	called, elicited := false, false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
@@ -221,7 +220,7 @@ func TestAddWrite_ElicitParamsError(t *testing.T) {
 	assert.False(t, called, "the write must not run")
 }
 
-// The validator guards the act pass too: state may change after the prompt.
+// Validation also runs on the action pass.
 func TestAddWrite_ValidateFailsOnSecondPass(t *testing.T) {
 	var passes int
 	called := false
@@ -248,7 +247,7 @@ func TestAddWrite_ValidateFailsOnSecondPass(t *testing.T) {
 	assert.False(t, called, "the write must not run")
 }
 
-// WithGateID keys the confirmation, and the retry round-trips under that key.
+// A custom gate ID survives the confirmation round trip.
 func TestAddWrite_CustomGateID(t *testing.T) {
 	called := false
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
@@ -267,8 +266,7 @@ func TestAddWrite_CustomGateID(t *testing.T) {
 	assert.True(t, called, "a custom gate id must complete both passes")
 }
 
-// A write with no prompt builder still asks, with a default message and the
-// non-nil empty properties clients require.
+// A write without a prompt builder uses the default confirmation.
 func TestAddWrite_DefaultPrompt(t *testing.T) {
 	var got *mcp.ElicitParams
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
@@ -306,13 +304,12 @@ func TestAddWrite_DefaultPrompt(t *testing.T) {
 	)
 }
 
-// The gate proves an answer was reported, not that one was ever asked for: a
-// call already carrying an accept skips the ask. Deliberate — see elicit's doc.
+// A supplied acceptance bypasses the confirmation request.
 func TestAddWrite_SuppliedAnswerSkipsAsk(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
 
-	cs := newTestMCPSession(t, s) // no elicitation capability at all
+	cs := newTestMCPSession(t, s) // The client has no elicitation capability.
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "do",
 		Arguments: map[string]any{"msg": "hi"},

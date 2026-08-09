@@ -22,7 +22,7 @@ type echoOut struct {
 	Echo string `json:"echo"`
 }
 
-// objectSchema is a minimal valid input/output schema for tests.
+// objectSchema returns a minimal valid schema.
 func objectSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "object"}
 }
@@ -45,7 +45,7 @@ func TestBuilderStoresFields(t *testing.T) {
 	require.NotNil(t, tl.elicitParamsFunc)
 }
 
-// A validator's sentinel must stay matchable through the pipeline (errors.Is).
+// Validation sentinels remain matchable through the handler.
 func TestCallPreservesValidateSentinel(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
@@ -117,7 +117,7 @@ func TestMCPToolOutputSchema(t *testing.T) {
 			return echoOut{Echo: in.Msg}, nil
 		})
 
-	// Without WithOutputSchema, OutputSchema must be an untyped nil interface.
+	// Omitted output schemas remain nil.
 	tool := tl.mcpTool(true)
 	require.True(
 		t,
@@ -129,7 +129,7 @@ func TestMCPToolOutputSchema(t *testing.T) {
 	require.NotNil(t, tool.OutputSchema)
 }
 
-// The access category owns ReadOnlyHint; the caller owns the rest.
+// Default annotations match each access category.
 func TestAnnotateKeepsCallerHints(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
@@ -150,7 +150,7 @@ func TestAnnotateKeepsCallerHints(t *testing.T) {
 	require.True(t, *a.OpenWorldHint)
 }
 
-// Caller hints are returned whole: an unset DestructiveHint stays unset.
+// Custom annotations replace the full default set.
 func TestAnnotateReturnsCallerHintsVerbatim(t *testing.T) {
 	a := mcp.ToolAnnotations{Title: "Look", ReadOnlyHint: true}
 	tl := New(nil, "n", "d", objectSchema(),
@@ -164,8 +164,7 @@ func TestAnnotateReturnsCallerHintsVerbatim(t *testing.T) {
 	require.NotSame(t, &a, got, "annotate must hand back its own copy")
 }
 
-// The contradiction panics at registration, not only in annotate: AddRead and
-// AddWrite must actually route through it.
+// Registration rejects annotation and access conflicts.
 func TestAddReadPanicsOnContradictingAnnotations(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	require.PanicsWithError(t, "n: "+ErrReadOnlyMismatch.Error(), func() {
@@ -177,7 +176,7 @@ func TestAddReadPanicsOnContradictingAnnotations(t *testing.T) {
 	})
 }
 
-// Hints that contradict the access category are programmer errors.
+// Conflicting hints panic during registration.
 func TestAnnotatePanicsOnContradiction(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -225,7 +224,7 @@ func TestAnnotatePanicsOnContradiction(t *testing.T) {
 	}
 }
 
-// Unset hints keep the defaults each category shipped before WithAnnotations.
+// Omitting annotations applies category defaults.
 func TestAnnotateDefaults(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
@@ -243,7 +242,7 @@ func TestAnnotateDefaults(t *testing.T) {
 	require.True(t, *write.DestructiveHint, "writes default to destructive")
 }
 
-// The gate key defaults to elicit.GateID and WithGateID overrides it.
+// WithGateID overrides elicit.GateID.
 func TestGateID(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),
 		func(_ context.Context, in echoIn) (echoOut, error) {
