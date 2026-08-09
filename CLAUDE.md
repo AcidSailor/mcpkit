@@ -67,8 +67,9 @@ preserving it for `errors.Is`. When adding an error path: declare the sentinel
 in that package's `errors.go`, wrap it with `%w` plus context at the boundary,
 and don't introduce a cross-package umbrella. `toolkit` wraps the handler at
 registration (`AddReadFunc`/`AddWriteFunc`), custom handlers included, so every
-error carries the tool name via `%w` and a `validate`/`elicit` sentinel raised
-inside a tool stays matchable.
+ordinary error carries the tool name via `%w` and a `validate`/`elicit` sentinel
+raised inside a tool stays matchable. A direct `*jsonrpc.Error` is returned
+unchanged because the SDK uses its concrete type to preserve its code and data.
 
 ### `server`
 

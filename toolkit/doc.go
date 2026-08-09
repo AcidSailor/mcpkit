@@ -60,8 +60,9 @@
 // toolkit re-exports the elicit sentinels (ErrUserDeclined, ErrUserCanceled,
 // ErrNoElicitation, ErrUnexpectedElicitAction, ErrElicitationFailed) so callers
 // need not import elicit. Registration wraps the handler, custom ones
-// included, so every error carries the tool name via %w and a validate/elicit
-// sentinel raised inside a tool stays matchable.
+// included, so ordinary errors carry the tool name via %w and a validate/elicit
+// sentinel raised inside a tool stays matchable. A direct *jsonrpc.Error stays
+// unchanged so the SDK preserves its structured code and data.
 //
 // InputSchema[In]() reflects a schema from a plain Go struct via jsonschema.For,
 // panicking on failure like mcp.AddTool does. Tool is a value type — builder

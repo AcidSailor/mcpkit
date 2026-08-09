@@ -6,6 +6,7 @@ import (
 
 	"github.com/acidsailor/mcpkit/elicit"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -149,6 +150,9 @@ func (t Tool[In, Out]) wrapHandler(
 		in In,
 	) (*mcp.CallToolResult, Out, error) {
 		res, out, err := h(ctx, req, in)
+		if _, ok := err.(*jsonrpc.Error); ok {
+			return res, out, err
+		}
 		return res, out, t.wrap(err)
 	}
 }

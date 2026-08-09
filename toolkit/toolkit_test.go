@@ -2,11 +2,14 @@ package toolkit
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/acidsailor/mcpkit/elicit"
 	"github.com/acidsailor/mcpkit/validate"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
@@ -54,6 +57,58 @@ func TestCallPreservesValidateSentinel(t *testing.T) {
 
 	_, _, err := tl.Call(context.Background(), nil, echoIn{})
 	require.ErrorIs(t, err, validate.ErrEmpty)
+}
+
+func TestCustomHandlersPreserveJSONRPCError(t *testing.T) {
+	type handler = mcp.ToolHandlerFor[echoIn, echoOut]
+	tests := []struct {
+		name string
+		add  func(Tool[echoIn, echoOut], handler)
+	}{
+		{"read", AddReadFunc[echoIn, echoOut]},
+		{"write", AddWriteFunc[echoIn, echoOut]},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := mcp.NewServer(
+				&mcp.Implementation{Name: "t", Version: "0"},
+				nil,
+			)
+			want := &jsonrpc.Error{
+				Code:    jsonrpc.CodeInvalidParams,
+				Message: "bad request",
+				Data:    json.RawMessage(`{"field":"msg"}`),
+			}
+			tt.add(
+				New(s, "echo", "echoes", objectSchema(),
+					func(_ context.Context, in echoIn) (echoOut, error) {
+						return echoOut{Echo: in.Msg}, nil
+					}),
+				func(
+					_ context.Context,
+					_ *mcp.CallToolRequest,
+					_ echoIn,
+				) (*mcp.CallToolResult, echoOut, error) {
+					return nil, echoOut{}, want
+				},
+			)
+
+			cs := newTestMCPSession(t, s)
+			res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
+				Name:      "echo",
+				Arguments: map[string]any{"msg": "hi"},
+			})
+			require.Nil(t, res)
+			require.Error(t, err)
+
+			var got *jsonrpc.Error
+			require.True(t, errors.As(err, &got))
+			require.Equal(t, want.Code, got.Code)
+			require.Equal(t, want.Message, got.Message)
+			require.JSONEq(t, string(want.Data), string(got.Data))
+		})
+	}
 }
 
 func TestMCPToolOutputSchema(t *testing.T) {
