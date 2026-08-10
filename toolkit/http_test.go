@@ -14,6 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// statelessURL serves s from a stateless JSON handler.
+func statelessURL(t *testing.T, s *mcp.Server) string {
+	t.Helper()
+	handler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return s },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+	)
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	return httpServer.URL
+}
+
 // statelessSession connects an HTTP client to a stateless handler.
 func statelessSession(
 	t *testing.T,
@@ -23,12 +35,7 @@ func statelessSession(
 	) (*mcp.ElicitResult, error),
 ) *mcp.ClientSession {
 	t.Helper()
-	handler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return s },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
-	)
-	httpServer := httptest.NewServer(handler)
-	t.Cleanup(httpServer.Close)
+	url := statelessURL(t, s)
 
 	client := mcp.NewClient(
 		&mcp.Implementation{Name: "c", Version: "0"},
@@ -36,7 +43,7 @@ func statelessSession(
 	)
 	cs, err := client.Connect(
 		t.Context(),
-		&mcp.StreamableClientTransport{Endpoint: httpServer.URL},
+		&mcp.StreamableClientTransport{Endpoint: url},
 		nil,
 	)
 	require.NoError(t, err)
@@ -87,29 +94,35 @@ func TestAddWrite_StatelessHTTPNoElicitation(t *testing.T) {
 		Arguments: map[string]any{"msg": "hi"},
 	})
 	require.Error(t, err, "an unanswerable gate must fail the call")
-	assert.Contains(t, err.Error(), "client does not support elicitation")
+	assert.Contains(t, err.Error(), wantNoElicitation)
 	assert.False(t, called, "the write must not run")
 }
 
-// newProtocolCall posts one tools/call carrying the given capabilities.
+// newProtocolCall posts one tools/call with the given capabilities and
+// gate responses. A nil responses map omits the field entirely.
 func newProtocolCall(
 	t *testing.T,
 	url string,
 	capabilities map[string]any,
+	responses map[string]any,
 ) map[string]any {
 	t.Helper()
+	params := map[string]any{
+		"_meta": map[string]any{
+			mcp.MetaKeyProtocolVersion:    "2026-07-28",
+			mcp.MetaKeyClientCapabilities: capabilities,
+		},
+		"name":      "do",
+		"arguments": map[string]any{"msg": "hi"},
+	}
+	if responses != nil {
+		params["inputResponses"] = responses
+	}
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "tools/call",
-		"params": map[string]any{
-			"_meta": map[string]any{
-				"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
-				"io.modelcontextprotocol/clientCapabilities": capabilities,
-			},
-			"name":      "do",
-			"arguments": map[string]any{"msg": "hi"},
-		},
+		"params":  params,
 	})
 	require.NoError(t, err)
 
@@ -136,25 +149,60 @@ func newProtocolCall(
 // A modern client need not declare elicitation to receive the gate.
 func TestAddWrite_StatelessHTTPNoDeclaredCapability(t *testing.T) {
 	called := false
-	s := writeServer(t, &called)
+	url := statelessURL(t, writeServer(t, &called))
 
-	handler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return s },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
-	)
-	httpServer := httptest.NewServer(handler)
-	t.Cleanup(httpServer.Close)
-
-	got := newProtocolCall(t, httpServer.URL, map[string]any{})
+	got := newProtocolCall(t, url, map[string]any{}, nil)
 
 	result, ok := got["result"].(map[string]any)
 	require.True(t, ok, "want a result, got %v", got)
-	assert.NotEqual(t, true, result["isError"], "must not refuse the client")
+	assert.NotContains(t, result, "isError", "must not refuse the client")
 
 	requests, ok := result["inputRequests"].(map[string]any)
 	require.True(t, ok, "want inputRequests, got %v", result)
 	assert.Contains(t, requests, elicit.GateID)
 	assert.False(t, called, "the write waits for the retry")
+}
+
+// The retry decides the write for an undeclared-capability client.
+func TestAddWrite_StatelessHTTPUndeclaredRetry(t *testing.T) {
+	tests := []struct {
+		name    string
+		action  string
+		wantRun bool
+	}{
+		{"accept", "accept", true},
+		{"decline", "decline", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			url := statelessURL(t, writeServer(t, &called))
+
+			got := newProtocolCall(t, url, map[string]any{}, map[string]any{
+				elicit.GateID: map[string]any{"action": tt.action},
+			})
+
+			result, ok := got["result"].(map[string]any)
+			require.True(t, ok, "want a result, got %v", got)
+			assert.NotContains(
+				t, result, "inputRequests", "the gate is answered",
+			)
+			assert.Equal(t, tt.wantRun, called, "the action gates the write")
+
+			if !tt.wantRun {
+				assert.Equal(t, true, result["isError"], "decline must error")
+				return
+			}
+			assert.NotContains(t, result, "isError", "accept must succeed")
+			assert.Equal(
+				t,
+				map[string]any{"echo": "hi"},
+				result["structuredContent"],
+				"the accepted write must return its result",
+			)
+		})
+	}
 }
 
 // A stateless client can run a read tool.
