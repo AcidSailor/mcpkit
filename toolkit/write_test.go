@@ -62,13 +62,12 @@ func errorText(res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-// wantNoElicitation is the SDK's refusal text; it exports no sentinel.
 const wantNoElicitation = "client does not support elicitation"
 
 func TestAddWrite_NoElicitationHandler(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
-	cs := newTestMCPSession(t, s) // The client has no elicitation handler.
+	cs := newTestMCPSession(t, s)
 	_, err := callDo(t, cs)
 	require.Error(t, err, "an unanswerable gate must fail the call")
 	assert.Contains(t, err.Error(), wantNoElicitation)
@@ -309,7 +308,7 @@ func TestAddWrite_SuppliedAnswerSkipsAsk(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
 
-	cs := newTestMCPSession(t, s) // The client has no elicitation handler.
+	cs := newTestMCPSession(t, s)
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "do",
 		Arguments: map[string]any{"msg": "hi"},

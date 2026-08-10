@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// statelessURL serves s from a stateless JSON handler.
 func statelessURL(t *testing.T, s *mcp.Server) string {
 	t.Helper()
 	handler := mcp.NewStreamableHTTPHandler(
@@ -98,8 +97,6 @@ func TestAddWrite_StatelessHTTPNoElicitation(t *testing.T) {
 	assert.False(t, called, "the write must not run")
 }
 
-// newProtocolCall posts one tools/call with the given capabilities and
-// gate responses. A nil responses map omits the field entirely.
 func newProtocolCall(
 	t *testing.T,
 	url string,
@@ -146,7 +143,6 @@ func newProtocolCall(
 	return got
 }
 
-// A modern client need not declare elicitation to receive the gate.
 func TestAddWrite_StatelessHTTPNoDeclaredCapability(t *testing.T) {
 	called := false
 	url := statelessURL(t, writeServer(t, &called))
@@ -163,7 +159,6 @@ func TestAddWrite_StatelessHTTPNoDeclaredCapability(t *testing.T) {
 	assert.False(t, called, "the write waits for the retry")
 }
 
-// The retry decides the write for an undeclared-capability client.
 func TestAddWrite_StatelessHTTPUndeclaredRetry(t *testing.T) {
 	tests := []struct {
 		name    string

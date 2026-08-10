@@ -10,14 +10,11 @@
 // reported user intent; it does not authenticate the client or authorize the
 // operation. Use authentication and idempotency controls where required.
 //
-// Ask does not inspect client capabilities. The retry is client-driven and
-// needs no back-channel. The SDK still refuses a client that cannot answer:
-// its client middleware fails the call for a 2026-07-28 client, and
-// ServerSession.Elicit runs the same check for an earlier one. Either way
-// the call fails; it does not return a tool error, and no sentinel matches.
+// Ask does not inspect client capabilities. The SDK rejects clients that
+// cannot answer with a call error that has no matchable sentinel.
 //
-// A client that ignores InputRequests sees an empty successful result and
-// the write does not run. Use CallToolResult.NeedsInput to detect the gate.
+// Clients must check CallToolResult.NeedsInput. Ignoring InputRequests returns
+// an empty successful result without running the write.
 //
 // Stateless HTTP supports gated writes for protocol 2026-07-28 and later.
 // Earlier clients need stdio or a stateful HTTP handler.

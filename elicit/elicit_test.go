@@ -121,15 +121,11 @@ func TestGateCustomID(t *testing.T) {
 	require.False(t, res.IsError, "a custom gate id must round-trip")
 }
 
-// wantNoElicitation is the SDK's refusal text; it exports no sentinel.
 const wantNoElicitation = "client does not support elicitation"
 
-// The SDK client middleware, not Ask, refuses a client with no handler.
 func TestAskNoElicitationHandler(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
-
-	// NewSession installs no elicitation handler.
 	cs := mcptest.NewSession(t, s)
 
 	_, err := callGate(t, cs)
@@ -171,7 +167,6 @@ func TestDecideRejectsTypedNilResult(t *testing.T) {
 	})
 }
 
-// Nil params still produce a request carrying an object schema.
 func TestAskNilParams(t *testing.T) {
 	res := elicit.Ask(elicit.GateID, nil)
 	params, ok := res.InputRequests[elicit.GateID].(*mcp.ElicitParams)
@@ -179,7 +174,6 @@ func TestAskNilParams(t *testing.T) {
 	require.NotNil(t, params.RequestedSchema)
 }
 
-// Ask defaults the schema on a copy, leaving the caller's params intact.
 func TestAskKeepsCallerParams(t *testing.T) {
 	in := &mcp.ElicitParams{Message: "x"}
 	elicit.Ask(elicit.GateID, in)

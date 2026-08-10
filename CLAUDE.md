@@ -114,15 +114,13 @@ response under the gate ID bypasses the prompt. `RequestState` is unsigned, so
 the retry is not bound to the original arguments. Use authentication and
 idempotency controls where required.
 
-The gate does not check the `elicitation` client capability. The retry is
-client-driven, so it needs no back-channel. The SDK still refuses a client that
-cannot answer: its client middleware fails the call for a `2026-07-28` client,
-and `ServerSession.Elicit` runs the same check for an earlier one. An
-unanswerable gate fails the call; it does not return a tool error. No sentinel
-matches, because the SDK reports a plain error.
+The gate does not require the `elicitation` client capability. The SDK rejects
+unsupported clients in its middleware for protocol `2026-07-28` and in
+`ServerSession.Elicit` for earlier protocols. This call error has no matchable
+sentinel.
 
-A client that ignores `inputRequests` sees an empty successful result and the
-write does not run. Use `CallToolResult.NeedsInput` to detect the gate.
+Clients must check `CallToolResult.NeedsInput`. Ignoring `inputRequests` returns
+an empty successful result without running the write.
 
 `AddReadFunc` and `AddWriteFunc` register custom handlers without adding
 validation or gating. Custom handlers can wrap the exported `Call` and `Gate`
