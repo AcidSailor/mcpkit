@@ -10,6 +10,12 @@
 // reported user intent; it does not authenticate the client or authorize the
 // operation. Use authentication and idempotency controls where required.
 //
+// Ask does not inspect client capabilities. The SDK rejects clients that
+// cannot answer with a call error that has no matchable sentinel.
+//
+// Clients must check CallToolResult.NeedsInput. Ignoring InputRequests returns
+// an empty successful result without running the write.
+//
 // Stateless HTTP supports gated writes for protocol 2026-07-28 and later.
 // Earlier clients need stdio or a stateful HTTP handler.
 package elicit

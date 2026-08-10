@@ -62,17 +62,16 @@ func errorText(res *mcp.CallToolResult) string {
 	return tc.Text
 }
 
-func TestAddWrite_NoElicitationCapability(t *testing.T) {
-	s := writeServer(t, nil)
-	cs := newTestMCPSession(t, s) // The client has no elicitation handler.
-	res, err := callDo(t, cs)
-	require.NoError(t, err)
-	assert.True(
-		t,
-		res.IsError,
-		"missing elicitation capability is a tool error",
-	)
-	assert.Contains(t, errorText(res), ErrNoElicitation.Error())
+const wantNoElicitation = "client does not support elicitation"
+
+func TestAddWrite_NoElicitationHandler(t *testing.T) {
+	called := false
+	s := writeServer(t, &called)
+	cs := newTestMCPSession(t, s)
+	_, err := callDo(t, cs)
+	require.Error(t, err, "an unanswerable gate must fail the call")
+	assert.Contains(t, err.Error(), wantNoElicitation)
+	assert.False(t, called, "the write must not run")
 }
 
 func TestAddWrite_Accept(t *testing.T) {
@@ -309,7 +308,7 @@ func TestAddWrite_SuppliedAnswerSkipsAsk(t *testing.T) {
 	called := false
 	s := writeServer(t, &called)
 
-	cs := newTestMCPSession(t, s) // The client has no elicitation capability.
+	cs := newTestMCPSession(t, s)
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "do",
 		Arguments: map[string]any{"msg": "hi"},

@@ -114,6 +114,14 @@ response under the gate ID bypasses the prompt. `RequestState` is unsigned, so
 the retry is not bound to the original arguments. Use authentication and
 idempotency controls where required.
 
+The gate does not require the `elicitation` client capability. The SDK rejects
+unsupported clients in its middleware for protocol `2026-07-28` and in
+`ServerSession.Elicit` for earlier protocols. This call error has no matchable
+sentinel.
+
+Clients must check `CallToolResult.NeedsInput`. Ignoring `inputRequests` returns
+an empty successful result without running the write.
+
 `AddReadFunc` and `AddWriteFunc` register custom handlers without adding
 validation or gating. Custom handlers can wrap the exported `Call` and `Gate`
 methods. Bind method values after the builder chain is complete because the

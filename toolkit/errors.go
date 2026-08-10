@@ -23,7 +23,6 @@ var (
 var (
 	ErrUserDeclined           = elicit.ErrUserDeclined
 	ErrUserCanceled           = elicit.ErrUserCanceled
-	ErrNoElicitation          = elicit.ErrNoElicitation
 	ErrUnexpectedElicitAction = elicit.ErrUnexpectedElicitAction
 	ErrElicitationFailed      = elicit.ErrElicitationFailed
 )
