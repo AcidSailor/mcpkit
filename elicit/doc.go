@@ -10,6 +10,11 @@
 // reported user intent; it does not authenticate the client or authorize the
 // operation. Use authentication and idempotency controls where required.
 //
+// Ask does not inspect client capabilities. The multi-round-trip retry is
+// client-driven and needs no back-channel. For an earlier client the SDK shim
+// fulfils the request through elicitation/create and reports a missing
+// capability itself.
+//
 // Stateless HTTP supports gated writes for protocol 2026-07-28 and later.
 // Earlier clients need stdio or a stateful HTTP handler.
 package elicit

@@ -26,15 +26,10 @@ func gateTool(s *mcp.Server, gateID string) {
 		) (*mcp.CallToolResult, error) {
 			resp, ok := req.Params.InputResponses[gateID]
 			if !ok {
-				res, err := elicit.Ask(
+				return elicit.Ask(
 					gateID,
-					req.Session,
 					&mcp.ElicitParams{Message: "ok?"},
-				)
-				if err != nil {
-					return toolError(err), nil
-				}
-				return res, nil
+				), nil
 			}
 			if err := elicit.Decide(resp); err != nil {
 				return toolError(err), nil
@@ -126,6 +121,7 @@ func TestGateCustomID(t *testing.T) {
 	require.False(t, res.IsError, "a custom gate id must round-trip")
 }
 
+// The SDK, not Ask, refuses a client that cannot answer the request.
 func TestAskNoElicitationCapability(t *testing.T) {
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	gateTool(s, elicit.GateID)
@@ -133,13 +129,9 @@ func TestAskNoElicitationCapability(t *testing.T) {
 	// NewSession does not advertise elicitation.
 	cs := mcptest.NewSession(t, s)
 
-	res, err := callGate(t, cs)
-	require.NoError(t, err)
-	require.True(t, res.IsError, "must error without the capability")
-
-	tc, ok := res.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	require.Contains(t, tc.Text, elicit.ErrNoElicitation.Error())
+	_, err := callGate(t, cs)
+	require.Error(t, err, "an unanswerable gate must fail the call")
+	require.Contains(t, err.Error(), "client does not support elicitation")
 }
 
 // A client handler error stops the retry.
@@ -176,10 +168,10 @@ func TestDecideRejectsTypedNilResult(t *testing.T) {
 	})
 }
 
-// Ask returns an error for a nil session.
-func TestAskNilSession(t *testing.T) {
-	require.NotPanics(t, func() {
-		_, err := elicit.Ask(elicit.GateID, nil, nil)
-		require.ErrorIs(t, err, elicit.ErrNoElicitation)
-	})
+// Nil params still produce a request carrying an object schema.
+func TestAskNilParams(t *testing.T) {
+	res := elicit.Ask(elicit.GateID, nil)
+	params, ok := res.InputRequests[elicit.GateID].(*mcp.ElicitParams)
+	require.True(t, ok)
+	require.NotNil(t, params.RequestedSchema)
 }

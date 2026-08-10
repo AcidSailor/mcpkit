@@ -33,7 +33,7 @@ func (t Tool[In, Out]) Gate(
 	var zero Out
 	resp, ok := req.Params.InputResponses[t.gate()]
 	if !ok {
-		res, err := t.ask(ctx, req.Session, in)
+		res, err := t.ask(ctx, in)
 		return res, zero, err
 	}
 	if err := elicit.Decide(resp); err != nil {
@@ -45,7 +45,6 @@ func (t Tool[In, Out]) Gate(
 // ask validates input and builds the confirmation request.
 func (t Tool[In, Out]) ask(
 	ctx context.Context,
-	session *mcp.ServerSession,
 	in In,
 ) (*mcp.CallToolResult, error) {
 	if err := t.validate(ctx, in); err != nil {
@@ -59,5 +58,5 @@ func (t Tool[In, Out]) ask(
 	if err != nil {
 		return nil, err
 	}
-	return elicit.Ask(t.gate(), session, params)
+	return elicit.Ask(t.gate(), params), nil
 }

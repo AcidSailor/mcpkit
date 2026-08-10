@@ -114,6 +114,11 @@ response under the gate ID bypasses the prompt. `RequestState` is unsigned, so
 the retry is not bound to the original arguments. Use authentication and
 idempotency controls where required.
 
+The gate does not check the `elicitation` client capability. The retry is
+client-driven, so it needs no back-channel. A client that cannot answer never
+produces an accepted response, and the SDK reports the missing capability when
+it fulfils the request for a pre-2026-07-28 client.
+
 `AddReadFunc` and `AddWriteFunc` register custom handlers without adding
 validation or gating. Custom handlers can wrap the exported `Call` and `Gate`
 methods. Bind method values after the builder chain is complete because the
