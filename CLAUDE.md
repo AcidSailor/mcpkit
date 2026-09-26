@@ -168,7 +168,9 @@ SDK list-change notifications work through resource add and remove operations.
 installs entries on a server. `Enable.Write` controls write tools; resources
 always bind.
 
-Tool options mirror `toolkit`. Use `WithToolAnnotations` for tool hints because
+`Read` and `Write` take the input and output schemas positionally. A nil output
+schema is reflected from `Out` by the SDK. The remaining tool options mirror
+`toolkit`. Use `WithToolAnnotations` for tool hints because
 `WithAnnotations` configures resource annotations. Resource options mirror the
 `resource` builder.
 
