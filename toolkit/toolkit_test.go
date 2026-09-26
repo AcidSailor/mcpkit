@@ -129,6 +129,21 @@ func TestMCPToolOutputSchema(t *testing.T) {
 	require.NotNil(t, tool.OutputSchema)
 }
 
+// Omitted input schemas stay untyped nil so the SDK reflects In.
+func TestMCPToolInputSchema(t *testing.T) {
+	tl := New(nil, "n", "d", nil,
+		func(_ context.Context, in echoIn) (echoOut, error) {
+			return echoOut{Echo: in.Msg}, nil
+		})
+
+	tool := tl.mcpTool(true)
+	require.True(
+		t,
+		tool.InputSchema == nil,
+		"unset input schema must be an untyped nil interface",
+	)
+}
+
 // Default annotations match each access category.
 func TestAnnotateKeepsCallerHints(t *testing.T) {
 	tl := New(nil, "n", "d", objectSchema(),

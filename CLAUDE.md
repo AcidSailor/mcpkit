@@ -86,7 +86,8 @@ the stateless path. Tool-call results are not cached.
 ## `toolkit`
 
 `New` returns a value builder and infers input and output types from the call
-function. The input schema is required. Use these options before registration:
+function. A nil input schema is reflected from `In` by the SDK. Use these options
+before registration:
 
 - `WithOutputSchema`
 - `WithValidateFunc`
@@ -168,8 +169,8 @@ SDK list-change notifications work through resource add and remove operations.
 installs entries on a server. `Enable.Write` controls write tools; resources
 always bind.
 
-`Read` and `Write` take the input and output schemas positionally. A nil output
-schema is reflected from `Out` by the SDK. The remaining tool options mirror
+`Read` and `Write` take the input and output schemas positionally. Nil schemas
+are reflected from `In` and `Out` by the SDK. The remaining tool options mirror
 `toolkit`. Use `WithToolAnnotations` for tool hints because
 `WithAnnotations` configures resource annotations. Resource options mirror the
 `resource` builder.
