@@ -34,6 +34,7 @@ type Tool[In, Out any] struct {
 }
 
 // New starts a tool registration, inferring In/Out from call.
+// A nil inputSchema is reflected from In by the SDK.
 func New[In, Out any](
 	server *mcp.Server,
 	name, description string,
@@ -112,13 +113,16 @@ func (t Tool[In, Out]) annotate(readOnly bool) *mcp.ToolAnnotations {
 	return &a
 }
 
-// mcpTool builds the SDK tool descriptor; OutputSchema set only when present.
+// mcpTool builds the SDK tool descriptor; schemas are set only when present
+// so the SDK reflects nil ones from In/Out.
 func (t Tool[In, Out]) mcpTool(readOnly bool) *mcp.Tool {
 	tool := &mcp.Tool{
 		Name:        t.name,
 		Description: t.description,
 		Annotations: t.annotate(readOnly),
-		InputSchema: t.inputSchema,
+	}
+	if t.inputSchema != nil {
+		tool.InputSchema = t.inputSchema
 	}
 	if t.outputSchema != nil {
 		tool.OutputSchema = t.outputSchema

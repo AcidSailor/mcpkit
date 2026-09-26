@@ -39,7 +39,7 @@ func WithGateID[In any](id string) Option[In] {
 }
 
 // Read describes a read-only tool. In/Out are inferred from call.
-// A nil out schema is reflected from Out by the SDK.
+// Nil in/out schemas are reflected from In/Out by the SDK.
 func Read[In, Out any](
 	name, description string,
 	in, out *jsonschema.Schema,
@@ -56,7 +56,7 @@ func Read[In, Out any](
 }
 
 // Write describes a state-mutating tool gated by elicitation; In/Out inferred.
-// A nil out schema is reflected from Out by the SDK.
+// Nil in/out schemas are reflected from In/Out by the SDK.
 func Write[In, Out any](
 	name, description string,
 	in, out *jsonschema.Schema,

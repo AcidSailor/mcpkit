@@ -195,11 +195,9 @@ func TestOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
 	require.True(t, res.IsError, "the validator must fail the call")
 }
 
-// A nil out schema is reflected from Out.
-func TestNilOutputSchemaIsInferred(t *testing.T) {
-	r := registry.Read(
-		"echo", "", toolkit.InputSchema[echoIn](), nil, echo,
-	)
+// Nil schemas are reflected from In and Out.
+func TestNilSchemasAreInferred(t *testing.T) {
+	r := registry.Read("echo", "", nil, nil, echo)
 
 	srv := newServer(t)
 	registry.New([]registry.Registration{r}).Bind(srv, registry.Enable{})
@@ -208,7 +206,17 @@ func TestNilOutputSchemaIsInferred(t *testing.T) {
 	list, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
 	require.NoError(t, err)
 	require.Len(t, list.Tools, 1)
+	in, ok := list.Tools[0].InputSchema.(map[string]any)
+	require.True(t, ok, "nil must infer from In")
+	require.Contains(t, in["properties"], "msg")
 	require.NotNil(t, list.Tools[0].OutputSchema, "nil must infer from Out")
+
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "echo",
+		Arguments: map[string]any{"msg": "hi"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
 }
 
 // The gate ID survives Bind and the confirmation round trip.
