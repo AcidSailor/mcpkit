@@ -9,7 +9,6 @@ import (
 
 // options holds the optional toolkit config captured by Read/Write.
 type options[In any] struct {
-	output      *jsonschema.Schema
 	validate    toolkit.ValidateFunc[In]
 	elicit      toolkit.ElicitParamsFunc[In]
 	annotations *mcp.ToolAnnotations
@@ -18,11 +17,6 @@ type options[In any] struct {
 
 // Option configures a Read/Write registration; In is usually inferred.
 type Option[In any] func(*options[In])
-
-// WithOutputSchema sets the tool's optional output schema (pin In if alone).
-func WithOutputSchema[In any](s *jsonschema.Schema) Option[In] {
-	return func(o *options[In]) { o.output = s }
-}
 
 // WithValidateFunc sets a validator run on decoded input before the call.
 func WithValidateFunc[In any](f toolkit.ValidateFunc[In]) Option[In] {
@@ -45,9 +39,10 @@ func WithGateID[In any](id string) Option[In] {
 }
 
 // Read describes a read-only tool. In/Out are inferred from call.
+// A nil out schema is reflected from Out by the SDK.
 func Read[In, Out any](
 	name, description string,
-	in *jsonschema.Schema,
+	in, out *jsonschema.Schema,
 	call toolkit.CallFunc[In, Out],
 	opts ...Option[In],
 ) Registration {
@@ -55,15 +50,16 @@ func Read[In, Out any](
 		Name:   name,
 		Access: AccessRead,
 		bind: func(s *mcp.Server) {
-			toolkit.AddRead(build(s, name, description, in, call, opts))
+			toolkit.AddRead(build(s, name, description, in, out, call, opts))
 		},
 	}
 }
 
 // Write describes a state-mutating tool gated by elicitation; In/Out inferred.
+// A nil out schema is reflected from Out by the SDK.
 func Write[In, Out any](
 	name, description string,
-	in *jsonschema.Schema,
+	in, out *jsonschema.Schema,
 	call toolkit.CallFunc[In, Out],
 	opts ...Option[In],
 ) Registration {
@@ -71,7 +67,7 @@ func Write[In, Out any](
 		Name:   name,
 		Access: AccessWrite,
 		bind: func(s *mcp.Server) {
-			toolkit.AddWrite(build(s, name, description, in, call, opts))
+			toolkit.AddWrite(build(s, name, description, in, out, call, opts))
 		},
 	}
 }
@@ -80,7 +76,7 @@ func Write[In, Out any](
 func build[In, Out any](
 	s *mcp.Server,
 	name, description string,
-	in *jsonschema.Schema,
+	in, out *jsonschema.Schema,
 	call toolkit.CallFunc[In, Out],
 	opts []Option[In],
 ) toolkit.Tool[In, Out] {
@@ -90,7 +86,7 @@ func build[In, Out any](
 	}
 	// Only annotations need a guard: the rest are zero-valued when unset.
 	t := toolkit.New(s, name, description, in, call).
-		WithOutputSchema(o.output).
+		WithOutputSchema(out).
 		WithValidateFunc(o.validate).
 		WithElicitParamsFunc(o.elicit).
 		WithGateID(o.gateID)

@@ -53,7 +53,7 @@ func TestReadRegistersAndExposesAccess(t *testing.T) {
 	r := registry.Read(
 		"echo",
 		"echoes msg",
-		toolkit.InputSchema[echoIn](),
+		toolkit.InputSchema[echoIn](), nil,
 		echo,
 	)
 	require.Equal(t, "echo", r.Name)
@@ -67,10 +67,10 @@ func TestReadRegistersAndExposesAccess(t *testing.T) {
 
 func TestBindSkipsWriteWhenDisabled(t *testing.T) {
 	read := registry.Read(
-		"r", "", toolkit.InputSchema[echoIn](), echo,
+		"r", "", toolkit.InputSchema[echoIn](), nil, echo,
 	)
 	write := registry.Write(
-		"w", "", toolkit.InputSchema[echoIn](), echo,
+		"w", "", toolkit.InputSchema[echoIn](), nil, echo,
 	)
 	require.Equal(t, registry.AccessWrite, write.Access)
 
@@ -83,10 +83,10 @@ func TestBindSkipsWriteWhenDisabled(t *testing.T) {
 
 func TestBindIncludesWriteWhenEnabled(t *testing.T) {
 	read := registry.Read(
-		"r", "", toolkit.InputSchema[echoIn](), echo,
+		"r", "", toolkit.InputSchema[echoIn](), nil, echo,
 	)
 	write := registry.Write(
-		"w", "", toolkit.InputSchema[echoIn](), echo,
+		"w", "", toolkit.InputSchema[echoIn](), nil, echo,
 	)
 
 	srv := newServer(t)
@@ -98,7 +98,7 @@ func TestBindIncludesWriteWhenEnabled(t *testing.T) {
 
 func TestReadCallsHandler(t *testing.T) {
 	r := registry.Read("echo", "echoes msg",
-		toolkit.InputSchema[echoIn](), echo)
+		toolkit.InputSchema[echoIn](), nil, echo)
 	srv := newServer(t)
 	registry.New([]registry.Registration{r}).
 		Bind(srv, registry.Enable{})
@@ -115,7 +115,7 @@ func TestReadCallsHandler(t *testing.T) {
 // Custom hints reach the wire after access validation.
 func TestWithToolAnnotationsReachTheWire(t *testing.T) {
 	w := registry.Write(
-		"w", "", toolkit.InputSchema[echoIn](), echo,
+		"w", "", toolkit.InputSchema[echoIn](), nil, echo,
 		registry.WithToolAnnotations[echoIn](mcp.ToolAnnotations{
 			Title:           "Create",
 			IdempotentHint:  true,
@@ -143,7 +143,7 @@ func TestWithToolAnnotationsReachTheWire(t *testing.T) {
 
 func TestReadOnlyHintOnWritePanicsAtBind(t *testing.T) {
 	w := registry.Write(
-		"w", "", toolkit.InputSchema[echoIn](), echo,
+		"w", "", toolkit.InputSchema[echoIn](), nil, echo,
 		registry.WithToolAnnotations[echoIn](mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		}),
@@ -161,10 +161,11 @@ func TestReadOnlyHintOnWritePanicsAtBind(t *testing.T) {
 }
 
 // Output schema and validation options survive Bind.
-func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
+func TestOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
+	out := toolkit.InputSchema[echoOut]()
+	out.Description = "explicit"
 	r := registry.Read(
-		"echo", "", toolkit.InputSchema[echoIn](), echo,
-		registry.WithOutputSchema[echoIn](toolkit.InputSchema[echoOut]()),
+		"echo", "", toolkit.InputSchema[echoIn](), out, echo,
 		registry.WithValidateFunc(
 			func(_ context.Context, in echoIn) error {
 				if in.Msg == "" {
@@ -182,7 +183,9 @@ func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
 	list, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
 	require.NoError(t, err)
 	require.Len(t, list.Tools, 1)
-	require.NotNil(t, list.Tools[0].OutputSchema, "output schema must bind")
+	got, ok := list.Tools[0].OutputSchema.(map[string]any)
+	require.True(t, ok, "output schema must bind")
+	require.Equal(t, "explicit", got["description"])
 
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "echo",
@@ -192,11 +195,27 @@ func TestWithOutputSchemaAndValidateFuncReachTheTool(t *testing.T) {
 	require.True(t, res.IsError, "the validator must fail the call")
 }
 
+// A nil out schema is reflected from Out.
+func TestNilOutputSchemaIsInferred(t *testing.T) {
+	r := registry.Read(
+		"echo", "", toolkit.InputSchema[echoIn](), nil, echo,
+	)
+
+	srv := newServer(t)
+	registry.New([]registry.Registration{r}).Bind(srv, registry.Enable{})
+	cs := mcptest.NewSession(t, srv)
+
+	list, err := cs.ListTools(context.Background(), &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	require.Len(t, list.Tools, 1)
+	require.NotNil(t, list.Tools[0].OutputSchema, "nil must infer from Out")
+}
+
 // The gate ID survives Bind and the confirmation round trip.
 func TestWithGateIDDrivesTheConfirmation(t *testing.T) {
 	called := false
 	w := registry.Write(
-		"w", "", toolkit.InputSchema[echoIn](),
+		"w", "", toolkit.InputSchema[echoIn](), nil,
 		func(_ context.Context, in echoIn) (echoOut, error) {
 			called = true
 			return echoOut(in), nil
@@ -232,7 +251,7 @@ func TestWithGateIDDrivesTheConfirmation(t *testing.T) {
 
 func TestWithGateIDOnReadPanicsAtBind(t *testing.T) {
 	r := registry.Read(
-		"bad", "", toolkit.InputSchema[echoIn](), echo,
+		"bad", "", toolkit.InputSchema[echoIn](), nil, echo,
 		registry.WithGateID[echoIn]("acme/confirm"),
 	)
 
@@ -251,7 +270,7 @@ func TestWithElicitOnReadPanicsAtBind(t *testing.T) {
 	r := registry.Read(
 		"bad",
 		"",
-		toolkit.InputSchema[echoIn](),
+		toolkit.InputSchema[echoIn](), nil,
 		echo,
 		registry.WithElicitFunc(
 			func(
