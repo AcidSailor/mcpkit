@@ -25,4 +25,5 @@ var (
 	ErrUserCanceled           = elicit.ErrUserCanceled
 	ErrUnexpectedElicitAction = elicit.ErrUnexpectedElicitAction
 	ErrElicitationFailed      = elicit.ErrElicitationFailed
+	ErrPromptOverflow         = elicit.ErrPromptOverflow
 )

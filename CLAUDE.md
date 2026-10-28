@@ -134,6 +134,11 @@ encodes a nil slice as `[]`.
 
 `toolkit` re-exports the `elicit` sentinels.
 
+`elicit.BoundedConfirmation` fails with `ErrPromptOverflow` when a message has
+more lines than the limit, so the write does not run. `MaxLines` matches Claude
+Code, which shows 4 lines and cannot expand the rest. Width is not checked
+because it depends on the terminal; put the action and object first.
+
 ## `resource`
 
 `New` builds a static resource. `NewTemplate` builds an RFC 6570 resource

@@ -8,4 +8,5 @@ var (
 	ErrUserCanceled           = errors.New("canceled by user")
 	ErrUnexpectedElicitAction = errors.New("unexpected elicit action")
 	ErrElicitationFailed      = errors.New("elicitation failed")
+	ErrPromptOverflow         = errors.New("prompt exceeds line limit")
 )
