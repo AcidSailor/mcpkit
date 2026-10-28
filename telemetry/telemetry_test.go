@@ -185,6 +185,15 @@ func TestParentFromMeta(t *testing.T) {
 	require.Equal(t, "b7ad6b7169203331", p.SpanID().String())
 }
 
+// TestPingSpan covers the SDK's typed nil params for a request without
+// params.
+func TestPingSpan(t *testing.T) {
+	cs, sr := tracedSession(t)
+	require.NoError(t, cs.Ping(t.Context(), nil))
+
+	span(t, sr, "ping")
+}
+
 // direct calls the middleware with next returning an empty result.
 func direct(
 	t *testing.T,

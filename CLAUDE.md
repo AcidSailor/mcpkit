@@ -224,8 +224,9 @@ three set the status to `Error`.
 The parent comes from `params._meta`. MCP carries trace context in the
 message, not in transport headers. The default propagator is W3C
 TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
-ambient span, which becomes a link, as the conventions require. The SDK can
-pass typed nil params and sessions, so guard them before calling methods.
+ambient span, which becomes a link, as the conventions require. The SDK passes
+typed nil params for requests without params, such as `ping`, so guard params
+before calling methods. Guard sessions too for hand-built requests.
 
 Protocol `2026-07-28` replaces `initialize` with `server/discover`. Do not
 assert an `initialize` span in tests.

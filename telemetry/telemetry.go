@@ -60,6 +60,7 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 		o(&c)
 	}
 	tracer := tp.Tracer(scope)
+	kind := trace.WithSpanKind(trace.SpanKindServer)
 
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(
@@ -72,10 +73,8 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 			}
 
 			name, attrs := describe(method, req)
-			opts := []trace.SpanStartOption{
-				trace.WithSpanKind(trace.SpanKindServer),
-				trace.WithAttributes(attrs...),
-			}
+			opts := make([]trace.SpanStartOption, 0, 3)
+			opts = append(opts, kind, trace.WithAttributes(attrs...))
 			ambient := trace.SpanContextFromContext(ctx)
 			ctx = c.propagator.Extract(ctx, metaCarrier(meta(req)))
 			// The _meta parent replaces the ambient one, such as an HTTP
@@ -102,7 +101,9 @@ func describe(
 	req mcp.Request,
 ) (string, []attribute.KeyValue) {
 	name := method
-	attrs := []attribute.KeyValue{keyMethodName.String(method)}
+	// Method, tool, operation, and session are the most set at once.
+	attrs := make([]attribute.KeyValue, 0, 4)
+	attrs = append(attrs, keyMethodName.String(method))
 
 	switch p := req.GetParams().(type) {
 	case *mcp.CallToolParamsRaw:
@@ -163,8 +164,10 @@ func meta(req mcp.Request) map[string]any {
 	return p.GetMeta()
 }
 
-// isNil reports a nil interface or a typed nil pointer. The SDK can pass
-// typed nil params and sessions, whose methods would panic.
+// isNil reports a nil interface or a typed nil pointer, whose methods would
+// panic. The SDK passes typed nil params for a request without params, such
+// as ping, and checks them with an unexported method. Its sessions are never
+// nil, but hand-built requests can carry a nil session.
 func isNil(v any) bool {
 	if v == nil {
 		return true
