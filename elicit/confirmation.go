@@ -14,15 +14,18 @@ import (
 type Limits struct {
 	// Lines is the most message lines the client shows.
 	Lines int
-	// Width is a best-effort cap, in runes, on the visible line width.
+	// Width is a best-effort cap, in runes, on the visible line width. Wide
+	// runes such as CJK and emoji and tabs take more than one column.
 	Width int
 }
 
-// DefaultLimits fits Claude Code (2.1.312). It shows 3 lines plus
-// "… (+N more lines)" for a longer message and cannot expand the rest. It
-// cuts each line at the terminal width; Width is a 100-column window. Put
-// the action, the object and any irreversibility first.
-var DefaultLimits = Limits{Lines: 4, Width: 100}
+// DefaultLimits returns limits that fit Claude Code (2.1.312). It shows 3
+// lines plus "… (+N more lines)" for a longer message and cannot expand the
+// rest. It cuts each line at the terminal width; Width allows 100 runes per
+// line. Put the action, the object and any irreversibility first.
+func DefaultLimits() Limits {
+	return Limits{Lines: 4, Width: 100}
+}
 
 // ParamsFunc builds an elicitation prompt from a decoded request of type In.
 type ParamsFunc[In any] func(
@@ -75,8 +78,8 @@ func BoundedConfirmation[In any](
 	limits Limits,
 	describe DescribeFunc[In],
 ) ParamsFunc[In] {
-	if limits.Lines < 1 || limits.Width < 1 {
-		panic(fmt.Errorf("%w: %+v", ErrInvalidLimits, limits))
+	if err := limits.validate(); err != nil {
+		panic(err)
 	}
 	return confirmation(
 		func(ctx context.Context, in In) (string, error) {
@@ -93,22 +96,33 @@ func BoundedConfirmation[In any](
 }
 
 // CheckPrompt returns ErrPromptOverflow when message has more lines than
-// limits.Lines or a line longer than limits.Width runes.
+// limits.Lines or a line longer than limits.Width runes. It returns
+// ErrInvalidLimits when a limit is less than 1.
 func CheckPrompt(message string, limits Limits) error {
-	lines := strings.Split(message, "\n")
-	if len(lines) > limits.Lines {
+	if err := limits.validate(); err != nil {
+		return err
+	}
+	if n := strings.Count(message, "\n") + 1; n > limits.Lines {
 		return fmt.Errorf(
-			"%w: %d lines, limit %d",
-			ErrPromptOverflow, len(lines), limits.Lines,
+			"%w: %d lines, limit %d", ErrPromptOverflow, n, limits.Lines,
 		)
 	}
-	for i, line := range lines {
+	i := 0
+	for line := range strings.SplitSeq(message, "\n") {
+		i++
 		if n := utf8.RuneCountInString(line); n > limits.Width {
 			return fmt.Errorf(
 				"%w: line %d is %d runes, limit %d",
-				ErrPromptOverflow, i+1, n, limits.Width,
+				ErrPromptOverflow, i, n, limits.Width,
 			)
 		}
+	}
+	return nil
+}
+
+func (l Limits) validate() error {
+	if l.Lines < 1 || l.Width < 1 {
+		return fmt.Errorf("%w: %+v", ErrInvalidLimits, l)
 	}
 	return nil
 }

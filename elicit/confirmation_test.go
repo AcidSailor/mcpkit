@@ -56,6 +56,7 @@ func TestDynamicConfirmationPropagatesDescribeError(t *testing.T) {
 }
 
 func TestCheckPrompt(t *testing.T) {
+	limits := elicit.Limits{Lines: 4, Width: 100}
 	long := strings.Repeat("я", 101)
 	tests := []struct {
 		name    string
@@ -83,7 +84,7 @@ func TestCheckPrompt(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := elicit.CheckPrompt(tt.message, elicit.DefaultLimits)
+			err := elicit.CheckPrompt(tt.message, limits)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -122,9 +123,17 @@ func TestBoundedConfirmationRejectsOverflow(t *testing.T) {
 	}
 }
 
+func TestDefaultLimits(t *testing.T) {
+	require.Equal(
+		t,
+		elicit.Limits{Lines: 4, Width: 100},
+		elicit.DefaultLimits(),
+	)
+}
+
 func TestBoundedConfirmationPropagatesDescribeError(t *testing.T) {
 	sentinel := errors.New("boom")
-	pf := elicit.BoundedConfirmation(elicit.DefaultLimits,
+	pf := elicit.BoundedConfirmation(elicit.DefaultLimits(),
 		func(_ context.Context, _ confirmInput) (string, error) {
 			return "", sentinel
 		},
@@ -149,4 +158,9 @@ func TestBoundedConfirmationPanicsOnInvalidLimits(t *testing.T) {
 			func() { elicit.BoundedConfirmation(limits, describe) },
 		)
 	}
+}
+
+func TestCheckPromptRejectsInvalidLimits(t *testing.T) {
+	err := elicit.CheckPrompt("Delete cal?", elicit.Limits{})
+	require.ErrorIs(t, err, elicit.ErrInvalidLimits)
 }
