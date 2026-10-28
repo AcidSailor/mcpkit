@@ -1,6 +1,6 @@
 module github.com/acidsailor/mcpkit
 
-go 1.26.0
+go 1.27
 
 require (
 	github.com/alecthomas/kong v1.16.1
@@ -15,7 +15,7 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 )

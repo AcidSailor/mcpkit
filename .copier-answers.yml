@@ -1,9 +1,9 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
-_commit: v1.7.3
+_commit: v1.8.0
 _src_path: gh:acidsailor/go-scaffolds
 author: Denis Shaporov / acidsailor
 author_email: d@shaporov.dev
-go_version: '1.26'
+go_version: '1.27'
 module_path: github.com/acidsailor/mcpkit
 project_name: mcpkit
 project_type: library
