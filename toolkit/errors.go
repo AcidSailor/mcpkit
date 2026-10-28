@@ -26,5 +26,5 @@ var (
 	ErrUnexpectedElicitAction = elicit.ErrUnexpectedElicitAction
 	ErrElicitationFailed      = elicit.ErrElicitationFailed
 	ErrPromptOverflow         = elicit.ErrPromptOverflow
-	ErrInvalidLineLimit       = elicit.ErrInvalidLineLimit
+	ErrInvalidLimits          = elicit.ErrInvalidLimits
 )

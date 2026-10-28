@@ -134,11 +134,12 @@ encodes a nil slice as `[]`.
 
 `toolkit` re-exports the `elicit` sentinels.
 
-`elicit.BoundedConfirmation` fails with `ErrPromptOverflow` when a message has
-more lines than the limit, so the write does not run. `MaxLines` matches Claude
-Code, which shows 4 lines and cannot expand the rest. Width is not checked
-because it depends on the terminal; put the action and object first. A limit
-below 1 panics with `ErrInvalidLineLimit`.
+`elicit.BoundedConfirmation` fails with `ErrPromptOverflow` when a message
+exceeds its `Limits`, so the write does not run. `DefaultLimits` fits Claude
+Code: it shows 4 lines and cannot expand the rest, and it cuts lines at the
+terminal width. `Width` is a best-effort 100-rune cap; put the action and
+object first and shorten long data fields. A limit below 1 panics with
+`ErrInvalidLimits`.
 
 ## `resource`
 
