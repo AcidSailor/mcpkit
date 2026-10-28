@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/acidsailor/mcpkit/elicit"
@@ -51,4 +52,77 @@ func TestDynamicConfirmationPropagatesDescribeError(t *testing.T) {
 	params, err := pf(context.Background(), confirmInput{})
 	require.Nil(t, params)
 	require.ErrorIs(t, err, sentinel)
+}
+
+func TestCheckLines(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		wantErr bool
+	}{
+		{name: "single line", message: "Delete cal?"},
+		{name: "at limit", message: "a\nb\nc\nd"},
+		{name: "over limit", message: "a\nb\nc\nd\ne", wantErr: true},
+		{name: "trailing newline", message: "a\nb\nc\nd\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := elicit.CheckLines(tt.message, elicit.MaxLines)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, elicit.ErrPromptOverflow)
+			require.ErrorContains(t, err, "5 lines, limit 4")
+		})
+	}
+}
+
+func TestBoundedConfirmationBuildsMessageWithinLimit(t *testing.T) {
+	pf := elicit.BoundedConfirmation(2,
+		func(_ context.Context, in confirmInput) (string, error) {
+			return "Delete " + in.Name + "?\nThis cannot be undone.", nil
+		},
+	)
+
+	params, err := pf(context.Background(), confirmInput{Name: "cal"})
+	require.NoError(t, err)
+	require.Equal(t, "Delete cal?\nThis cannot be undone.", params.Message)
+}
+
+func TestBoundedConfirmationRejectsOverflow(t *testing.T) {
+	pf := elicit.BoundedConfirmation(1,
+		func(_ context.Context, _ confirmInput) (string, error) {
+			return "Delete cal?\nThis cannot be undone.", nil
+		},
+	)
+
+	params, err := pf(context.Background(), confirmInput{})
+	require.Nil(t, params)
+	require.ErrorIs(t, err, elicit.ErrPromptOverflow)
+}
+
+func TestBoundedConfirmationPropagatesDescribeError(t *testing.T) {
+	sentinel := errors.New("boom")
+	pf := elicit.BoundedConfirmation(elicit.MaxLines,
+		func(_ context.Context, _ confirmInput) (string, error) {
+			return "", sentinel
+		},
+	)
+
+	params, err := pf(context.Background(), confirmInput{})
+	require.Nil(t, params)
+	require.ErrorIs(t, err, sentinel)
+}
+
+func TestBoundedConfirmationPanicsOnInvalidLimit(t *testing.T) {
+	describe := func(_ context.Context, _ confirmInput) (string, error) {
+		return "Delete cal?", nil
+	}
+	for _, lines := range []int{0, -1} {
+		require.PanicsWithError(t,
+			fmt.Sprintf("line limit must be at least 1: %d", lines),
+			func() { elicit.BoundedConfirmation(lines, describe) },
+		)
+	}
 }
