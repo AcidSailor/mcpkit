@@ -137,7 +137,8 @@ encodes a nil slice as `[]`.
 `elicit.BoundedConfirmation` fails with `ErrPromptOverflow` when a message has
 more lines than the limit, so the write does not run. `MaxLines` matches Claude
 Code, which shows 4 lines and cannot expand the rest. Width is not checked
-because it depends on the terminal; put the action and object first.
+because it depends on the terminal; put the action and object first. A limit
+below 1 panics with `ErrInvalidLineLimit`.
 
 ## `resource`
 

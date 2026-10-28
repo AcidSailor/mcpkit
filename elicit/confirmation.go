@@ -60,18 +60,22 @@ func DynamicConfirmation[In any](describe DescribeFunc[In]) ParamsFunc[In] {
 
 // BoundedConfirmation is DynamicConfirmation that fails with
 // ErrPromptOverflow when the message has more than lines lines. The gate
-// then aborts before the write runs.
+// then aborts before the write runs. It panics with ErrInvalidLineLimit
+// when lines is less than 1, because no message could pass.
 func BoundedConfirmation[In any](
 	lines int,
 	describe DescribeFunc[In],
 ) ParamsFunc[In] {
+	if lines < 1 {
+		panic(fmt.Errorf("%w: %d", ErrInvalidLineLimit, lines))
+	}
 	return confirmation(
 		func(ctx context.Context, in In) (string, error) {
 			message, err := describe(ctx, in)
 			if err != nil {
 				return "", err
 			}
-			if err := Check(message, lines); err != nil {
+			if err := CheckLines(message, lines); err != nil {
 				return "", err
 			}
 			return message, nil
@@ -79,8 +83,8 @@ func BoundedConfirmation[In any](
 	)
 }
 
-// Check returns ErrPromptOverflow when message has more than lines lines.
-func Check(message string, lines int) error {
+// CheckLines returns ErrPromptOverflow when message has more than lines lines.
+func CheckLines(message string, lines int) error {
 	if n := strings.Count(message, "\n") + 1; n > lines {
 		return fmt.Errorf(
 			"%w: %d lines, limit %d", ErrPromptOverflow, n, lines,

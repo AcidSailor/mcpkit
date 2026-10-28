@@ -9,4 +9,5 @@ var (
 	ErrUnexpectedElicitAction = errors.New("unexpected elicit action")
 	ErrElicitationFailed      = errors.New("elicitation failed")
 	ErrPromptOverflow         = errors.New("prompt exceeds line limit")
+	ErrInvalidLineLimit       = errors.New("line limit must be at least 1")
 )

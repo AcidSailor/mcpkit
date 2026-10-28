@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/acidsailor/mcpkit/elicit"
@@ -53,7 +54,7 @@ func TestDynamicConfirmationPropagatesDescribeError(t *testing.T) {
 	require.ErrorIs(t, err, sentinel)
 }
 
-func TestCheck(t *testing.T) {
+func TestCheckLines(t *testing.T) {
 	tests := []struct {
 		name    string
 		message string
@@ -66,7 +67,7 @@ func TestCheck(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := elicit.Check(tt.message, elicit.MaxLines)
+			err := elicit.CheckLines(tt.message, elicit.MaxLines)
 			if !tt.wantErr {
 				require.NoError(t, err)
 				return
@@ -112,4 +113,16 @@ func TestBoundedConfirmationPropagatesDescribeError(t *testing.T) {
 	params, err := pf(context.Background(), confirmInput{})
 	require.Nil(t, params)
 	require.ErrorIs(t, err, sentinel)
+}
+
+func TestBoundedConfirmationPanicsOnInvalidLimit(t *testing.T) {
+	describe := func(_ context.Context, _ confirmInput) (string, error) {
+		return "Delete cal?", nil
+	}
+	for _, lines := range []int{0, -1} {
+		require.PanicsWithError(t,
+			fmt.Sprintf("line limit must be at least 1: %d", lines),
+			func() { elicit.BoundedConfirmation(lines, describe) },
+		)
+	}
 }
