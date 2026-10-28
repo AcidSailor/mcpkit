@@ -210,25 +210,35 @@ Both validators include the field name in the wrapped error.
 `Server.AddReceivingMiddleware`. The caller owns OpenTelemetry setup: the
 provider and propagator are injected, and the package never reads OTel
 globals or configures exporters. A nil provider panics with
-`ErrNilTracerProvider`. Do not add an SDK or exporter import outside tests.
+`ErrNilTracerProvider`, and `WithPropagator(nil)` panics with
+`ErrNilPropagator`, both at construction. Do not add an SDK or exporter
+import outside tests.
 
 Each non-notification request gets a server span named `tools/call <tool>`,
-`prompts/get <prompt>`, or the method. Attributes follow the MCP semantic
-conventions. The keys are declared locally: semconv v1.42.0 moved the
-`gen_ai` and `mcp` conventions to the GenAI semantic conventions repository.
+`prompts/get <prompt>`, or the method. Span names and parenting follow the
+MCP semantic conventions; attributes are a subset of theirs, without
+`jsonrpc.request.id`, `mcp.protocol.version`, or network attributes. The
+keys are declared locally: semconv v1.42.0 moved the `gen_ai` and `mcp`
+conventions to the GenAI semantic conventions repository.
 Later Go semconv packages omit them, and v1.41.0 is a frozen snapshot.
 
 A `*jsonrpc.Error` sets `error.type` and `rpc.response.status_code` to its
-code; another call error sets `error.type` to its Go type. A tool result with
+code; another call error sets it through `semconv.ErrorType`, which uses an
+`ErrorType()` method or the unwrapped Go type. A tool result with
 `IsError` sets `error.type=tool_error`. All three set the status to `Error`.
 
 The parent comes from `params._meta`. MCP carries trace context in the
 message, not in transport headers. The default propagator is W3C
 TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
-ambient span, which becomes a link, as the conventions require. The ambient
+ambient span, which becomes a link, as the conventions recommend. The ambient
 span comes from the handler context. A stateful HTTP session keeps the
 context of the request that created it, so only stateless HTTP gives each
 request its own ambient span.
+
+`NewServer` installs the SDK's multi-round-trip shim before any caller
+middleware, so telemetry wraps it. A gated write from a `2026-07-28` client
+gives two `tools/call` spans; from an older client, one span covers both
+passes.
 
 The SDK passes typed nil params for requests without params, such as `ping`.
 `params` turns them into a nil interface, so the type switch needs no nil

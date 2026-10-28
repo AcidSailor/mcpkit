@@ -180,8 +180,9 @@ templates := mcptest.ListResourceTemplateURIs(t, session)
 
 ### Tracing
 
-`telemetry.Middleware` starts one server span per MCP request. It follows the
-MCP semantic conventions. Pass the `TracerProvider` you configured; the
+`telemetry.Middleware` starts one server span per MCP request. Span names and
+parenting follow the MCP semantic conventions, and spans carry a subset of
+their attributes. Pass the `TracerProvider` you configured; the
 package never reads OpenTelemetry globals and configures no exporter:
 
 ```go
@@ -199,7 +200,8 @@ in the request's `params._meta`. MCP carries trace context in messages, not
 HTTP headers, because one HTTP request can carry several MCP messages and
 stdio has no headers. When both exist, the `_meta` parent wins and the
 ambient span, such as an `otelhttp` handler span, becomes a link. Use
-`telemetry.WithPropagator` to read other formats.
+`telemetry.WithPropagator` to read other formats; `baggage` in `_meta` needs
+a composite propagator that includes `propagation.Baggage`.
 
 The ambient span is the one in the handler context. Stateless streamable HTTP
 gives each request its own context. A stateful session keeps the context of

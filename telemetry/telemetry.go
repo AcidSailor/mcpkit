@@ -51,7 +51,8 @@ func WithPropagator(p propagation.TextMapPropagator) Option {
 }
 
 // Middleware returns receiving middleware that traces each MCP request with
-// tracers from tp. It panics with ErrNilTracerProvider when tp is nil.
+// tracers from tp. It panics with ErrNilTracerProvider when tp is nil and
+// with ErrNilPropagator when WithPropagator gets nil.
 func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 	if tp == nil {
 		panic(ErrNilTracerProvider)
@@ -59,6 +60,9 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 	c := config{propagator: propagation.TraceContext{}}
 	for _, o := range opts {
 		o(&c)
+	}
+	if c.propagator == nil {
+		panic(ErrNilPropagator)
 	}
 	tracer := tp.Tracer(scope)
 	kind := trace.WithSpanKind(trace.SpanKindServer)

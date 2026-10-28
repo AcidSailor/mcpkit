@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -34,7 +35,7 @@ const (
 	traceparent = "00-" + traceID + "-" + spanID + "-01"
 )
 
-// nop is a next handler that returns an empty result.
+// nop is a next handler that returns a nil result and no error.
 func nop(context.Context, string, mcp.Request) (mcp.Result, error) {
 	return nil, nil
 }
@@ -50,15 +51,16 @@ func recorder(
 	return tp, sr
 }
 
-// tracedServer returns a traced server with a tool, a resource, and a
-// prompt.
+// tracedServer returns a traced server with a tool, a resource, and two
+// prompts, one of which fails.
 func tracedServer(
 	t *testing.T,
+	opts ...telemetry.Option,
 ) (*mcp.Server, *tracetest.SpanRecorder) {
 	t.Helper()
 	tp, sr := recorder(t)
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	s.AddReceivingMiddleware(telemetry.Middleware(tp))
+	s.AddReceivingMiddleware(telemetry.Middleware(tp, opts...))
 	mcp.AddTool(
 		s,
 		&mcp.Tool{Name: "echo", Description: "echo"},
@@ -95,15 +97,25 @@ func tracedServer(
 			return &mcp.GetPromptResult{}, nil
 		},
 	)
+	s.AddPrompt(
+		&mcp.Prompt{Name: "fail"},
+		func(
+			context.Context,
+			*mcp.GetPromptRequest,
+		) (*mcp.GetPromptResult, error) {
+			return nil, errors.New("boom")
+		},
+	)
 	return s, sr
 }
 
 // tracedSession connects a client to a traced server.
 func tracedSession(
 	t *testing.T,
+	opts ...telemetry.Option,
 ) (*mcp.ClientSession, *tracetest.SpanRecorder) {
 	t.Helper()
-	s, sr := tracedServer(t)
+	s, sr := tracedServer(t, opts...)
 	return mcptest.NewSession(t, s), sr
 }
 
@@ -186,6 +198,20 @@ func TestCallErrorSpan(t *testing.T) {
 	require.Len(t, s.Events(), 1)
 }
 
+func TestPlainErrorSpan(t *testing.T) {
+	cs, sr := tracedSession(t)
+
+	_, err := cs.GetPrompt(t.Context(), &mcp.GetPromptParams{Name: "fail"})
+	require.Error(t, err)
+
+	s := span(t, sr, "prompts/get fail")
+	require.Equal(t, codes.Error, s.Status().Code)
+	a := attrs(s)
+	require.Equal(t, "*errors.errorString", a["error.type"])
+	require.NotContains(t, a, attribute.Key("rpc.response.status_code"))
+	require.Len(t, s.Events(), 1)
+}
+
 func TestPromptSpan(t *testing.T) {
 	cs, sr := tracedSession(t)
 
@@ -210,6 +236,32 @@ func TestParentFromMeta(t *testing.T) {
 	require.True(t, p.IsRemote())
 	require.Equal(t, traceID, p.TraceID().String())
 	require.Equal(t, spanID, p.SpanID().String())
+}
+
+func TestWithPropagatorReplacesDefault(t *testing.T) {
+	cs, sr := tracedSession(t, telemetry.WithPropagator(propagation.Baggage{}))
+
+	_, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
+		Meta:      mcp.Meta{"traceparent": traceparent},
+		Name:      "echo",
+		Arguments: echoIn{},
+	})
+	require.NoError(t, err)
+
+	require.False(t, span(t, sr, "tools/call echo").Parent().IsValid())
+}
+
+func TestNonStringMetaIgnored(t *testing.T) {
+	cs, sr := tracedSession(t)
+
+	_, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
+		Meta:      mcp.Meta{"traceparent": 123},
+		Name:      "echo",
+		Arguments: echoIn{},
+	})
+	require.NoError(t, err)
+
+	require.False(t, span(t, sr, "tools/call echo").Parent().IsValid())
 }
 
 // TestPingSpan covers the SDK's typed nil params for a request without
@@ -250,9 +302,11 @@ func TestSubscribeResourceURI(t *testing.T) {
 			Params:  &mcp.UnsubscribeParams{URI: "test://known"},
 		},
 	} {
-		s := direct(t, t.Context(), method, req)
-		require.Equal(t, method, s.Name())
-		require.Equal(t, "test://known", attrs(s)["mcp.resource.uri"])
+		t.Run(method, func(t *testing.T) {
+			s := direct(t, t.Context(), method, req)
+			require.Equal(t, method, s.Name())
+			require.Equal(t, "test://known", attrs(s)["mcp.resource.uri"])
+		})
 	}
 }
 
@@ -336,5 +390,12 @@ func TestAmbientParentWithoutMeta(t *testing.T) {
 func TestNilTracerProviderPanics(t *testing.T) {
 	require.PanicsWithValue(t, telemetry.ErrNilTracerProvider, func() {
 		telemetry.Middleware(nil)
+	})
+}
+
+func TestNilPropagatorPanics(t *testing.T) {
+	tp, _ := recorder(t)
+	require.PanicsWithValue(t, telemetry.ErrNilPropagator, func() {
+		telemetry.Middleware(tp, telemetry.WithPropagator(nil))
 	})
 }
