@@ -215,23 +215,32 @@ globals or configures exporters. A nil provider panics with
 Each non-notification request gets a server span named `tools/call <tool>`,
 `prompts/get <prompt>`, or the method. Attributes follow the MCP semantic
 conventions. The keys are declared locally: semconv v1.42.0 moved the
-`gen_ai` and `mcp` conventions to the GenAI semantic conventions repository,
-which has no Go package. A `*jsonrpc.Error` sets `error.type` and
-`rpc.response.status_code` to its code; another call error sets `error.type`
-to its Go type. A tool result with `IsError` sets `error.type=tool_error`. All
-three set the status to `Error`.
+`gen_ai` and `mcp` conventions to the GenAI semantic conventions repository.
+Later Go semconv packages omit them, and v1.41.0 is a frozen snapshot.
+
+A `*jsonrpc.Error` sets `error.type` and `rpc.response.status_code` to its
+code; another call error sets `error.type` to its Go type. A tool result with
+`IsError` sets `error.type=tool_error`. All three set the status to `Error`.
 
 The parent comes from `params._meta`. MCP carries trace context in the
 message, not in transport headers. The default propagator is W3C
 TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
-ambient span, which becomes a link, as the conventions require. The SDK passes
-typed nil params for requests without params, such as `ping`, so guard params
-before calling methods. go-sdk after v1.8.0 exports this check as
-`mcp.HasParams`; use it once released. Sessions are never nil; give
-hand-built test requests `&mcp.ServerSession{}`.
+ambient span, which becomes a link, as the conventions require. The ambient
+span comes from the handler context. A stateful HTTP session keeps the
+context of the request that created it, so only stateless HTTP gives each
+request its own ambient span.
 
-Protocol `2026-07-28` replaces `initialize` with `server/discover`. Do not
-assert an `initialize` span in tests.
+The SDK passes typed nil params for requests without params, such as `ping`.
+`params` turns them into a nil interface, so the type switch needs no nil
+checks. go-sdk after v1.8.0 exports this check as `mcp.HasParams`; use it once
+released.
+
+Test through `mcptest`. Hand-build requests only for what it cannot produce:
+an ambient span, and `resources/subscribe`, which protocol `2026-07-28`
+clients replace with `subscriptions/listen`. Sessions are never nil, so give
+hand-built requests `&mcp.ServerSession{}`. Protocol `2026-07-28` also
+replaces `initialize` with `server/discover`; do not assert an `initialize`
+span.
 
 ## Tests
 

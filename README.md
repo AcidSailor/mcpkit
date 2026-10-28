@@ -201,6 +201,10 @@ stdio has no headers. When both exist, the `_meta` parent wins and the
 ambient span, such as an `otelhttp` handler span, becomes a link. Use
 `telemetry.WithPropagator` to read other formats.
 
+The ambient span is the one in the handler context. Stateless streamable HTTP
+gives each request its own context. A stateful session keeps the context of
+the HTTP request that created it, so later requests see that request's span.
+
 ### Result envelopes
 
 MCP structured results must have a JSON object at the root. Wrap slice and

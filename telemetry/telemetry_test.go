@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,15 +28,35 @@ type echoOut struct {
 	OK bool `json:"ok"`
 }
 
-// tracedSession serves a traced server and returns its client and spans.
-func tracedSession(
+const (
+	traceID     = "0af7651916cd43dd8448eb211c80319c"
+	spanID      = "b7ad6b7169203331"
+	traceparent = "00-" + traceID + "-" + spanID + "-01"
+)
+
+// nop is a next handler that returns an empty result.
+func nop(context.Context, string, mcp.Request) (mcp.Result, error) {
+	return nil, nil
+}
+
+// recorder returns a sampling provider whose ended spans sr records.
+func recorder(
 	t *testing.T,
-) (*mcp.ClientSession, *tracetest.SpanRecorder) {
+) (*sdktrace.TracerProvider, *tracetest.SpanRecorder) {
 	t.Helper()
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	return tp, sr
+}
 
+// tracedServer returns a traced server with a tool, a resource, and a
+// prompt.
+func tracedServer(
+	t *testing.T,
+) (*mcp.Server, *tracetest.SpanRecorder) {
+	t.Helper()
+	tp, sr := recorder(t)
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
 	s.AddReceivingMiddleware(telemetry.Middleware(tp))
 	mcp.AddTool(
@@ -74,6 +95,15 @@ func tracedSession(
 			return &mcp.GetPromptResult{}, nil
 		},
 	)
+	return s, sr
+}
+
+// tracedSession connects a client to a traced server.
+func tracedSession(
+	t *testing.T,
+) (*mcp.ClientSession, *tracetest.SpanRecorder) {
+	t.Helper()
+	s, sr := tracedServer(t)
 	return mcptest.NewSession(t, s), sr
 }
 
@@ -170,10 +200,7 @@ func TestParentFromMeta(t *testing.T) {
 	cs, sr := tracedSession(t)
 
 	_, err := cs.CallTool(t.Context(), &mcp.CallToolParams{
-		Meta: mcp.Meta{
-			"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
-				"b7ad6b7169203331-01",
-		},
+		Meta:      mcp.Meta{"traceparent": traceparent},
 		Name:      "echo",
 		Arguments: echoIn{},
 	})
@@ -181,8 +208,8 @@ func TestParentFromMeta(t *testing.T) {
 
 	p := span(t, sr, "tools/call echo").Parent()
 	require.True(t, p.IsRemote())
-	require.Equal(t, "0af7651916cd43dd8448eb211c80319c", p.TraceID().String())
-	require.Equal(t, "b7ad6b7169203331", p.SpanID().String())
+	require.Equal(t, traceID, p.TraceID().String())
+	require.Equal(t, spanID, p.SpanID().String())
 }
 
 // TestPingSpan covers the SDK's typed nil params for a request without
@@ -194,104 +221,115 @@ func TestPingSpan(t *testing.T) {
 	span(t, sr, "ping")
 }
 
-// direct calls the middleware with next returning an empty result.
+// direct calls the middleware for what mcptest cannot produce and returns
+// the one span it ends.
 func direct(
 	t *testing.T,
+	ctx context.Context,
 	method string,
 	req mcp.Request,
-) *tracetest.SpanRecorder {
+) sdktrace.ReadOnlySpan {
 	t.Helper()
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	next := func(
-		context.Context,
-		string,
-		mcp.Request,
-	) (mcp.Result, error) {
-		return nil, nil
-	}
-	_, err := telemetry.Middleware(tp)(next)(t.Context(), method, req)
+	tp, sr := recorder(t)
+	_, err := telemetry.Middleware(tp)(nop)(ctx, method, req)
 	require.NoError(t, err)
-	return sr
+	require.Len(t, sr.Ended(), 1)
+	return sr.Ended()[0]
+}
+
+// TestSubscribeResourceURI hand-builds the request: protocol 2026-07-28
+// clients, including mcptest's, use subscriptions/listen instead.
+func TestSubscribeResourceURI(t *testing.T) {
+	for method, req := range map[string]mcp.Request{
+		"resources/subscribe": &mcp.ServerRequest[*mcp.SubscribeParams]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.SubscribeParams{URI: "test://known"},
+		},
+		"resources/unsubscribe": &mcp.ServerRequest[*mcp.UnsubscribeParams]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.UnsubscribeParams{URI: "test://known"},
+		},
+	} {
+		s := direct(t, t.Context(), method, req)
+		require.Equal(t, method, s.Name())
+		require.Equal(t, "test://known", attrs(s)["mcp.resource.uri"])
+	}
+}
+
+func TestEmptyToolNameSpan(t *testing.T) {
+	cs, sr := tracedSession(t)
+	_, _ = cs.CallTool(t.Context(), &mcp.CallToolParams{})
+
+	span(t, sr, "tools/call")
 }
 
 func TestNotificationsNotTraced(t *testing.T) {
-	sr := direct(
-		t,
-		"notifications/progress",
-		&mcp.ServerRequest[*mcp.ProgressNotificationParams]{},
-	)
-	require.Empty(t, sr.Ended())
+	s, sr := tracedServer(t)
+	seen := make(chan struct{}, 1)
+	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(
+			ctx context.Context,
+			method string,
+			req mcp.Request,
+		) (mcp.Result, error) {
+			res, err := next(ctx, method, req)
+			if method == "notifications/progress" {
+				seen <- struct{}{}
+			}
+			return res, err
+		}
+	})
+	cs := mcptest.NewSession(t, s)
+
+	require.NoError(t, cs.NotifyProgress(
+		t.Context(),
+		&mcp.ProgressNotificationParams{ProgressToken: "p", Progress: 1},
+	))
+	select {
+	case <-seen:
+	case <-time.After(5 * time.Second):
+		t.Fatal("progress notification did not reach the server")
+	}
+	for _, s := range sr.Ended() {
+		require.NotContains(t, s.Name(), "notifications/")
+	}
 }
 
-func TestNilParams(t *testing.T) {
-	sr := direct(
+// httpSpan stands in for an HTTP server span in the handler context.
+// mcptest connects with a background context, so it cannot supply one.
+var httpSpan = trace.NewSpanContext(trace.SpanContextConfig{
+	TraceID:    trace.TraceID{1},
+	SpanID:     trace.SpanID{1},
+	TraceFlags: trace.FlagsSampled,
+})
+
+func TestAmbientLinkedUnderMetaParent(t *testing.T) {
+	ctx := trace.ContextWithSpanContext(t.Context(), httpSpan)
+	s := direct(
 		t,
+		ctx,
 		"tools/call",
 		&mcp.ServerRequest[*mcp.CallToolParamsRaw]{
 			Session: &mcp.ServerSession{},
+			Params: &mcp.CallToolParamsRaw{
+				Meta: mcp.Meta{"traceparent": traceparent},
+				Name: "echo",
+			},
 		},
 	)
-	s := span(t, sr, "tools/call")
-	require.Equal(t, map[attribute.Key]string{
-		"mcp.method.name": "tools/call",
-	}, attrs(s))
-}
 
-func TestAmbientLinkedUnderMetaParent(t *testing.T) {
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	ctx, ambient := tp.Tracer("http").Start(t.Context(), "POST /mcp")
-	defer ambient.End()
-
-	next := func(
-		context.Context,
-		string,
-		mcp.Request,
-	) (mcp.Result, error) {
-		return nil, nil
-	}
-	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
-		Session: &mcp.ServerSession{},
-		Params: &mcp.CallToolParamsRaw{
-			Meta: mcp.Meta{
-				"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
-					"b7ad6b7169203331-01",
-			},
-			Name: "echo",
-		},
-	}
-	_, err := telemetry.Middleware(tp)(next)(ctx, "tools/call", req)
-	require.NoError(t, err)
-
-	s := span(t, sr, "tools/call echo")
-	require.Equal(t, "0af7651916cd43dd8448eb211c80319c",
-		s.Parent().TraceID().String())
+	require.Equal(t, traceID, s.Parent().TraceID().String())
 	require.Len(t, s.Links(), 1)
-	require.Equal(t, ambient.SpanContext(), s.Links()[0].SpanContext)
+	require.Equal(t, httpSpan, s.Links()[0].SpanContext)
 }
 
 func TestAmbientParentWithoutMeta(t *testing.T) {
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	ctx, ambient := tp.Tracer("http").Start(t.Context(), "POST /mcp")
-	defer ambient.End()
-
-	next := func(
-		context.Context,
-		string,
-		mcp.Request,
-	) (mcp.Result, error) {
-		return nil, nil
-	}
-	req := &mcp.ServerRequest[*mcp.ListToolsParams]{
+	ctx := trace.ContextWithSpanContext(t.Context(), httpSpan)
+	s := direct(t, ctx, "tools/list", &mcp.ServerRequest[*mcp.ListToolsParams]{
 		Session: &mcp.ServerSession{},
-	}
-	_, err := telemetry.Middleware(tp)(next)(ctx, "tools/list", req)
-	require.NoError(t, err)
+	})
 
-	s := span(t, sr, "tools/list")
-	require.Equal(t, ambient.SpanContext().SpanID(), s.Parent().SpanID())
+	require.Equal(t, httpSpan.SpanID(), s.Parent().SpanID())
 	require.Empty(t, s.Links())
 }
 
@@ -299,29 +337,4 @@ func TestNilTracerProviderPanics(t *testing.T) {
 	require.PanicsWithValue(t, telemetry.ErrNilTracerProvider, func() {
 		telemetry.Middleware(nil)
 	})
-}
-
-func TestSubscribeResourceURI(t *testing.T) {
-	sr := direct(
-		t,
-		"resources/subscribe",
-		&mcp.ServerRequest[*mcp.SubscribeParams]{
-			Session: &mcp.ServerSession{},
-			Params:  &mcp.SubscribeParams{URI: "test://known"},
-		},
-	)
-	s := span(t, sr, "resources/subscribe")
-	require.Equal(t, "test://known", attrs(s)["mcp.resource.uri"])
-}
-
-func TestEmptyToolNameSpan(t *testing.T) {
-	sr := direct(
-		t,
-		"tools/call",
-		&mcp.ServerRequest[*mcp.CallToolParamsRaw]{
-			Session: &mcp.ServerSession{},
-			Params:  &mcp.CallToolParamsRaw{},
-		},
-	)
-	span(t, sr, "tools/call")
 }

@@ -16,6 +16,11 @@
 // either, each request starts a new trace. Spans from outbound calls made
 // with the request context nest under the request span.
 //
+// The ambient span is whatever the handler context carries. Stateless
+// streamable HTTP gives each request its own context. A stateful session
+// keeps the context of the HTTP request that created it, so every later
+// request on the session sees that request's span as ambient.
+//
 // A gated write runs twice, so it produces two tools/call spans: one that
 // asks and one that acts.
 //

@@ -12,21 +12,11 @@ import (
 
 func BenchmarkMiddleware(b *testing.B) {
 	tp := sdktrace.NewTracerProvider()
-	next := func(
-		context.Context,
-		string,
-		mcp.Request,
-	) (mcp.Result, error) {
-		return nil, nil
-	}
-	h := telemetry.Middleware(tp)(next)
+	h := telemetry.Middleware(tp)(nop)
 	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
 		Session: &mcp.ServerSession{},
 		Params: &mcp.CallToolParamsRaw{
-			Meta: mcp.Meta{
-				"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
-					"b7ad6b7169203331-01",
-			},
+			Meta: mcp.Meta{"traceparent": traceparent},
 			Name: "get_orders",
 		},
 	}

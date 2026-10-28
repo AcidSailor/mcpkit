@@ -25,8 +25,9 @@ const scope = "github.com/acidsailor/mcpkit/telemetry"
 const toolError = "tool_error"
 
 // MCP semantic convention keys. Semconv v1.42.0 moved the gen_ai and mcp
-// conventions to the GenAI semantic conventions repository, which has no Go
-// package, so they are declared here.
+// conventions to the GenAI semantic conventions repository. Later Go semconv
+// packages omit them, and v1.41.0 is a frozen snapshot, so they are declared
+// here.
 const (
 	keyMethodName    = attribute.Key("mcp.method.name")
 	keySessionID     = attribute.Key("mcp.session.id")
@@ -72,11 +73,16 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 				return next(ctx, method, req)
 			}
 
-			name, attrs := describe(method, req)
+			p := params(req)
+			name, attrs := describe(method, p, req.GetSession())
 			start := make([]trace.SpanStartOption, 0, 3)
 			start = append(start, kind, trace.WithAttributes(attrs...))
 			ambient := trace.SpanContextFromContext(ctx)
-			ctx = c.propagator.Extract(ctx, metaCarrier(meta(req)))
+			var md metaCarrier
+			if p != nil {
+				md = p.GetMeta()
+			}
+			ctx = c.propagator.Extract(ctx, md)
 			// The _meta parent replaces the ambient one, such as an HTTP
 			// server span; keep the ambient span as a link.
 			if ambient.IsValid() &&
@@ -95,46 +101,38 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 	}
 }
 
-// describe returns the span name and attributes for a request.
+// describe returns the span name and attributes for a request. Nil params
+// match no case.
 func describe(
 	method string,
-	req mcp.Request,
+	p mcp.Params,
+	s mcp.Session,
 ) (string, []attribute.KeyValue) {
 	name := method
 	// Method, tool, operation, and session are the most set at once.
 	attrs := make([]attribute.KeyValue, 0, 4)
 	attrs = append(attrs, keyMethodName.String(method))
 
-	switch p := req.GetParams().(type) {
+	switch p := p.(type) {
 	case *mcp.CallToolParamsRaw:
-		if p != nil {
-			name = target(name, p.Name)
-			attrs = append(
-				attrs,
-				keyToolName.String(p.Name),
-				keyOperationName.String("execute_tool"),
-			)
-		}
+		name = target(name, p.Name)
+		attrs = append(
+			attrs,
+			keyToolName.String(p.Name),
+			keyOperationName.String("execute_tool"),
+		)
 	case *mcp.GetPromptParams:
-		if p != nil {
-			name = target(name, p.Name)
-			attrs = append(attrs, keyPromptName.String(p.Name))
-		}
+		name = target(name, p.Name)
+		attrs = append(attrs, keyPromptName.String(p.Name))
 	case *mcp.ReadResourceParams:
-		if p != nil {
-			attrs = append(attrs, keyResourceURI.String(p.URI))
-		}
+		attrs = append(attrs, keyResourceURI.String(p.URI))
 	case *mcp.SubscribeParams:
-		if p != nil {
-			attrs = append(attrs, keyResourceURI.String(p.URI))
-		}
+		attrs = append(attrs, keyResourceURI.String(p.URI))
 	case *mcp.UnsubscribeParams:
-		if p != nil {
-			attrs = append(attrs, keyResourceURI.String(p.URI))
-		}
+		attrs = append(attrs, keyResourceURI.String(p.URI))
 	}
 
-	if id := req.GetSession().ID(); id != "" {
+	if id := s.ID(); id != "" {
 		attrs = append(attrs, keySessionID.String(id))
 	}
 	return name, attrs
@@ -171,29 +169,23 @@ func record(span trace.Span, res mcp.Result, err error) {
 	}
 }
 
-// meta returns the request's _meta, or nil when it has no params.
-func meta(req mcp.Request) map[string]any {
+// params returns the request's params, or nil when it has none. The SDK
+// passes typed nil params for a request without params, such as ping, and
+// their methods panic. go-sdk after v1.8.0 exports this check as
+// mcp.HasParams; switch to it when upgrading.
+func params(req mcp.Request) mcp.Params {
 	p := req.GetParams()
-	if isNil(p) {
+	if p == nil {
 		return nil
 	}
-	return p.GetMeta()
-}
-
-// isNil reports a nil interface or a typed nil pointer, whose methods would
-// panic. The SDK passes typed nil params for a request without params, such
-// as ping. go-sdk after v1.8.0 exports the same check as mcp.HasParams;
-// switch to it when upgrading.
-func isNil(v any) bool {
-	if v == nil {
-		return true
+	if v := reflect.ValueOf(p); v.Kind() == reflect.Pointer && v.IsNil() {
+		return nil
 	}
-	rv := reflect.ValueOf(v)
-	return rv.Kind() == reflect.Pointer && rv.IsNil()
+	return p
 }
 
-// metaCarrier adapts _meta to a propagation.TextMapCarrier. Only string
-// values are read.
+// metaCarrier adapts _meta to a read-only propagation.TextMapCarrier. Only
+// string values are read.
 type metaCarrier map[string]any
 
 func (m metaCarrier) Get(key string) string {
@@ -201,11 +193,9 @@ func (m metaCarrier) Get(key string) string {
 	return s
 }
 
-func (m metaCarrier) Set(key, value string) {
-	if m != nil {
-		m[key] = value
-	}
-}
+// Set does nothing: Extract only reads, and the client's _meta must not
+// change.
+func (metaCarrier) Set(string, string) {}
 
 func (m metaCarrier) Keys() []string {
 	return slices.Collect(maps.Keys(m))
