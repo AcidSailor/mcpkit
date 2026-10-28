@@ -126,8 +126,8 @@ func describe(
 		}
 	}
 
-	if s := req.GetSession(); !isNil(s) && s.ID() != "" {
-		attrs = append(attrs, keySessionID.String(s.ID()))
+	if id := req.GetSession().ID(); id != "" {
+		attrs = append(attrs, keySessionID.String(id))
 	}
 	return name, attrs
 }
@@ -166,8 +166,7 @@ func meta(req mcp.Request) map[string]any {
 
 // isNil reports a nil interface or a typed nil pointer, whose methods would
 // panic. The SDK passes typed nil params for a request without params, such
-// as ping, and checks them with an unexported method. Its sessions are never
-// nil, but hand-built requests can carry a nil session.
+// as ping, and checks them with an unexported method.
 func isNil(v any) bool {
 	if v == nil {
 		return true

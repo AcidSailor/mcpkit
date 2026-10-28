@@ -224,11 +224,13 @@ func TestNotificationsNotTraced(t *testing.T) {
 	require.Empty(t, sr.Ended())
 }
 
-func TestNilParamsAndSession(t *testing.T) {
+func TestNilParams(t *testing.T) {
 	sr := direct(
 		t,
 		"tools/call",
-		&mcp.ServerRequest[*mcp.CallToolParamsRaw]{},
+		&mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Session: &mcp.ServerSession{},
+		},
 	)
 	s := span(t, sr, "tools/call")
 	require.Equal(t, map[attribute.Key]string{
@@ -250,6 +252,7 @@ func TestAmbientLinkedUnderMetaParent(t *testing.T) {
 		return nil, nil
 	}
 	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Session: &mcp.ServerSession{},
 		Params: &mcp.CallToolParamsRaw{
 			Meta: mcp.Meta{
 				"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
@@ -281,7 +284,9 @@ func TestAmbientParentWithoutMeta(t *testing.T) {
 	) (mcp.Result, error) {
 		return nil, nil
 	}
-	req := &mcp.ServerRequest[*mcp.ListToolsParams]{}
+	req := &mcp.ServerRequest[*mcp.ListToolsParams]{
+		Session: &mcp.ServerSession{},
+	}
 	_, err := telemetry.Middleware(tp)(next)(ctx, "tools/list", req)
 	require.NoError(t, err)
 

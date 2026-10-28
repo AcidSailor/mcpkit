@@ -21,6 +21,7 @@ func BenchmarkMiddleware(b *testing.B) {
 	}
 	h := telemetry.Middleware(tp)(next)
 	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Session: &mcp.ServerSession{},
 		Params: &mcp.CallToolParamsRaw{
 			Meta: mcp.Meta{
 				"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
