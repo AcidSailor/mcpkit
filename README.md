@@ -15,6 +15,8 @@ helpers. The only executable is `cmd/mcpbstage`, which stages `.mcpb` bundles.
 - `elicit` provides the write-tool gate and confirmation builders.
 - `openapi` derives tool schemas from a dereferenced OpenAPI document.
 - `validate` provides input validators with matchable error sentinels.
+- `telemetry` traces MCP requests with a caller-supplied OpenTelemetry
+  `TracerProvider`.
 - `mcptest` creates in-memory client and server sessions for tests.
 
 ## Requirements
@@ -175,6 +177,25 @@ user := mcptest.ReadResourceJSON[User](t, session, "users://42")
 uris := mcptest.ListResourceURIs(t, session)
 templates := mcptest.ListResourceTemplateURIs(t, session)
 ```
+
+### Tracing
+
+`telemetry.Middleware` starts one server span per MCP request. It follows the
+MCP semantic conventions. Pass the `TracerProvider` you configured; the
+package never reads OpenTelemetry globals and configures no exporter:
+
+```go
+mcpServer.AddReceivingMiddleware(telemetry.Middleware(tracerProvider))
+```
+
+Spans are named `tools/call <tool>`, `prompts/get <prompt>`, or the method
+name. A call error or a tool result with `IsError` marks the span failed.
+Notifications are not traced. Outbound calls made with the handler context,
+such as `otelhttp` client requests, nest under the request span.
+
+A client continues its own trace by sending W3C `traceparent` and `tracestate`
+in the request's `params._meta`. Use `telemetry.WithPropagator` to read other
+formats.
 
 ### Result envelopes
 

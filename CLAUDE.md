@@ -40,6 +40,7 @@ at 80 columns or fewer. CI uses
 - `elicit`: write-tool confirmation gates.
 - `openapi`: schema assembly from dereferenced OpenAPI documents.
 - `validate`: input validators.
+- `telemetry`: OpenTelemetry tracing middleware.
 - `mcptest`: in-memory MCP test sessions.
 - `cmd/mcpbstage`: stages `.mcpb` bundle contents from GoReleaser output.
 
@@ -202,6 +203,29 @@ errors.
 - `RequireNonZero` rejects zero comparable values with `ErrZero`.
 
 Both validators include the field name in the wrapped error.
+
+## `telemetry`
+
+`Middleware(tp, opts...)` returns receiving middleware for
+`Server.AddReceivingMiddleware`. The caller owns OpenTelemetry setup: the
+provider and propagator are injected, and the package never reads OTel
+globals or configures exporters. A nil provider panics with
+`ErrNilTracerProvider`. Do not add an SDK or exporter import outside tests.
+
+Each non-notification request gets a server span named `tools/call <tool>`,
+`prompts/get <prompt>`, or the method. Attributes follow the MCP semantic
+conventions. The keys are declared locally because Go semconv packages after
+v1.41.0 omit them. A call error records the error and `error.type`; a tool
+result with `IsError` sets `error.type=tool_error`. Both set the status to
+`Error`.
+
+The parent comes from `params._meta`. MCP carries trace context in the
+message, not in transport headers. The default propagator is W3C
+TraceContext; `WithPropagator` replaces it. The SDK can pass typed nil params
+and sessions, so guard them before calling methods.
+
+Protocol `2026-07-28` replaces `initialize` with `server/discover`. Do not
+assert an `initialize` span in tests.
 
 ## Tests
 
