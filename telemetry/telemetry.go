@@ -73,19 +73,19 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 			}
 
 			name, attrs := describe(method, req)
-			opts := make([]trace.SpanStartOption, 0, 3)
-			opts = append(opts, kind, trace.WithAttributes(attrs...))
+			start := make([]trace.SpanStartOption, 0, 3)
+			start = append(start, kind, trace.WithAttributes(attrs...))
 			ambient := trace.SpanContextFromContext(ctx)
 			ctx = c.propagator.Extract(ctx, metaCarrier(meta(req)))
 			// The _meta parent replaces the ambient one, such as an HTTP
 			// server span; keep the ambient span as a link.
 			if ambient.IsValid() &&
 				!ambient.Equal(trace.SpanContextFromContext(ctx)) {
-				opts = append(opts, trace.WithLinks(
+				start = append(start, trace.WithLinks(
 					trace.Link{SpanContext: ambient},
 				))
 			}
-			ctx, span := tracer.Start(ctx, name, opts...)
+			ctx, span := tracer.Start(ctx, name, start...)
 			defer span.End()
 
 			res, err := next(ctx, method, req)
@@ -108,7 +108,7 @@ func describe(
 	switch p := req.GetParams().(type) {
 	case *mcp.CallToolParamsRaw:
 		if p != nil {
-			name += " " + p.Name
+			name = target(name, p.Name)
 			attrs = append(
 				attrs,
 				keyToolName.String(p.Name),
@@ -117,10 +117,18 @@ func describe(
 		}
 	case *mcp.GetPromptParams:
 		if p != nil {
-			name += " " + p.Name
+			name = target(name, p.Name)
 			attrs = append(attrs, keyPromptName.String(p.Name))
 		}
 	case *mcp.ReadResourceParams:
+		if p != nil {
+			attrs = append(attrs, keyResourceURI.String(p.URI))
+		}
+	case *mcp.SubscribeParams:
+		if p != nil {
+			attrs = append(attrs, keyResourceURI.String(p.URI))
+		}
+	case *mcp.UnsubscribeParams:
 		if p != nil {
 			attrs = append(attrs, keyResourceURI.String(p.URI))
 		}
@@ -130,6 +138,14 @@ func describe(
 		attrs = append(attrs, keySessionID.String(id))
 	}
 	return name, attrs
+}
+
+// target appends a non-empty tool or prompt name to the span name.
+func target(method, name string) string {
+	if name == "" {
+		return method
+	}
+	return method + " " + name
 }
 
 // record marks the span failed for a call error or a tool error result. A

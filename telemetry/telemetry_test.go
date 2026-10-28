@@ -300,3 +300,28 @@ func TestNilTracerProviderPanics(t *testing.T) {
 		telemetry.Middleware(nil)
 	})
 }
+
+func TestSubscribeResourceURI(t *testing.T) {
+	sr := direct(
+		t,
+		"resources/subscribe",
+		&mcp.ServerRequest[*mcp.SubscribeParams]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.SubscribeParams{URI: "test://known"},
+		},
+	)
+	s := span(t, sr, "resources/subscribe")
+	require.Equal(t, "test://known", attrs(s)["mcp.resource.uri"])
+}
+
+func TestEmptyToolNameSpan(t *testing.T) {
+	sr := direct(
+		t,
+		"tools/call",
+		&mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.CallToolParamsRaw{},
+		},
+	)
+	span(t, sr, "tools/call")
+}
