@@ -19,7 +19,7 @@ helpers. The only executable is `cmd/mcpbstage`, which stages `.mcpb` bundles.
 
 ## Requirements
 
-- Go 1.26 or later
+- Go 1.27 or later
 
 ## Installation
 

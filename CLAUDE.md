@@ -10,7 +10,7 @@ official
 It wraps the SDK; it does not implement the MCP protocol.
 
 - Module: `github.com/acidsailor/mcpkit`
-- Go: 1.26
+- Go: 1.27
 - The root package exports no API.
 - Importable code is in subpackages.
 - `cmd/mcpbstage` is a build-time CLI, not library API.
