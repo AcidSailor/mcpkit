@@ -166,7 +166,8 @@ func meta(req mcp.Request) map[string]any {
 
 // isNil reports a nil interface or a typed nil pointer, whose methods would
 // panic. The SDK passes typed nil params for a request without params, such
-// as ping, and checks them with an unexported method.
+// as ping. go-sdk after v1.8.0 exports the same check as mcp.HasParams;
+// switch to it when upgrading.
 func isNil(v any) bool {
 	if v == nil {
 		return true

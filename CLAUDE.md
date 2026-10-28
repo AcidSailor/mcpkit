@@ -226,7 +226,8 @@ message, not in transport headers. The default propagator is W3C
 TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
 ambient span, which becomes a link, as the conventions require. The SDK passes
 typed nil params for requests without params, such as `ping`, so guard params
-before calling methods. Sessions are never nil; give hand-built test
+before calling methods. go-sdk after v1.8.0 exports this check as
+`mcp.HasParams`; use it once released. Sessions are never nil; give hand-built test
 requests `&mcp.ServerSession{}`.
 
 Protocol `2026-07-28` replaces `initialize` with `server/discover`. Do not
