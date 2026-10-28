@@ -3,8 +3,10 @@ package telemetry_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
@@ -141,12 +143,16 @@ func TestCallErrorSpan(t *testing.T) {
 	_, err := cs.ReadResource(t.Context(), &mcp.ReadResourceParams{
 		URI: "test://missing",
 	})
-	require.Error(t, err)
+	var rpcErr *jsonrpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	code := strconv.FormatInt(rpcErr.Code, 10)
 
 	s := span(t, sr, "resources/read")
 	require.Equal(t, codes.Error, s.Status().Code)
-	require.Equal(t, "test://missing", attrs(s)["mcp.resource.uri"])
-	require.NotEmpty(t, attrs(s)["error.type"])
+	a := attrs(s)
+	require.Equal(t, "test://missing", a["mcp.resource.uri"])
+	require.Equal(t, code, a["error.type"])
+	require.Equal(t, code, a["rpc.response.status_code"])
 	require.Len(t, s.Events(), 1)
 }
 
@@ -219,6 +225,60 @@ func TestNilParamsAndSession(t *testing.T) {
 	require.Equal(t, map[attribute.Key]string{
 		"mcp.method.name": "tools/call",
 	}, attrs(s))
+}
+
+func TestAmbientLinkedUnderMetaParent(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	ctx, ambient := tp.Tracer("http").Start(t.Context(), "POST /mcp")
+	defer ambient.End()
+
+	next := func(
+		context.Context,
+		string,
+		mcp.Request,
+	) (mcp.Result, error) {
+		return nil, nil
+	}
+	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
+		Params: &mcp.CallToolParamsRaw{
+			Meta: mcp.Meta{
+				"traceparent": "00-0af7651916cd43dd8448eb211c80319c-" +
+					"b7ad6b7169203331-01",
+			},
+			Name: "echo",
+		},
+	}
+	_, err := telemetry.Middleware(tp)(next)(ctx, "tools/call", req)
+	require.NoError(t, err)
+
+	s := span(t, sr, "tools/call echo")
+	require.Equal(t, "0af7651916cd43dd8448eb211c80319c",
+		s.Parent().TraceID().String())
+	require.Len(t, s.Links(), 1)
+	require.Equal(t, ambient.SpanContext(), s.Links()[0].SpanContext)
+}
+
+func TestAmbientParentWithoutMeta(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	ctx, ambient := tp.Tracer("http").Start(t.Context(), "POST /mcp")
+	defer ambient.End()
+
+	next := func(
+		context.Context,
+		string,
+		mcp.Request,
+	) (mcp.Result, error) {
+		return nil, nil
+	}
+	req := &mcp.ServerRequest[*mcp.ListToolsParams]{}
+	_, err := telemetry.Middleware(tp)(next)(ctx, "tools/list", req)
+	require.NoError(t, err)
+
+	s := span(t, sr, "tools/list")
+	require.Equal(t, ambient.SpanContext().SpanID(), s.Parent().SpanID())
+	require.Empty(t, s.Links())
 }
 
 func TestNilTracerProviderPanics(t *testing.T) {

@@ -214,14 +214,17 @@ globals or configures exporters. A nil provider panics with
 
 Each non-notification request gets a server span named `tools/call <tool>`,
 `prompts/get <prompt>`, or the method. Attributes follow the MCP semantic
-conventions. The keys are declared locally because Go semconv packages after
-v1.41.0 omit them. A call error records the error and `error.type`; a tool
-result with `IsError` sets `error.type=tool_error`. Both set the status to
-`Error`.
+conventions. The keys are declared locally: semconv v1.42.0 moved the
+`gen_ai` and `mcp` conventions to the GenAI semantic conventions repository,
+which has no Go package. A `*jsonrpc.Error` sets `error.type` and
+`rpc.response.status_code` to its code; another call error sets `error.type`
+to its Go type. A tool result with `IsError` sets `error.type=tool_error`. All
+three set the status to `Error`.
 
 The parent comes from `params._meta`. MCP carries trace context in the
 message, not in transport headers. The default propagator is W3C
-TraceContext; `WithPropagator` replaces it. The SDK can pass typed nil params
+TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
+ambient span, which becomes a link, as the conventions require. The SDK can pass typed nil params
 and sessions, so guard them before calling methods.
 
 Protocol `2026-07-28` replaces `initialize` with `server/discover`. Do not

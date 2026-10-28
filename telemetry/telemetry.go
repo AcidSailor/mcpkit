@@ -2,11 +2,14 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -21,8 +24,9 @@ const scope = "github.com/acidsailor/mcpkit/telemetry"
 // toolError is the error.type of a tool result with IsError set.
 const toolError = "tool_error"
 
-// MCP semantic convention keys. Go semconv packages after v1.41.0 omit
-// them, so they are declared here.
+// MCP semantic convention keys. Semconv v1.42.0 moved the gen_ai and mcp
+// conventions to the GenAI semantic conventions repository, which has no Go
+// package, so they are declared here.
 const (
 	keyMethodName    = attribute.Key("mcp.method.name")
 	keySessionID     = attribute.Key("mcp.session.id")
@@ -67,14 +71,22 @@ func Middleware(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 				return next(ctx, method, req)
 			}
 
-			ctx = c.propagator.Extract(ctx, metaCarrier(meta(req)))
 			name, attrs := describe(method, req)
-			ctx, span := tracer.Start(
-				ctx,
-				name,
+			opts := []trace.SpanStartOption{
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(attrs...),
-			)
+			}
+			ambient := trace.SpanContextFromContext(ctx)
+			ctx = c.propagator.Extract(ctx, metaCarrier(meta(req)))
+			// The _meta parent replaces the ambient one, such as an HTTP
+			// server span; keep the ambient span as a link.
+			if ambient.IsValid() &&
+				!ambient.Equal(trace.SpanContextFromContext(ctx)) {
+				opts = append(opts, trace.WithLinks(
+					trace.Link{SpanContext: ambient},
+				))
+			}
+			ctx, span := tracer.Start(ctx, name, opts...)
 			defer span.End()
 
 			res, err := next(ctx, method, req)
@@ -119,11 +131,20 @@ func describe(
 	return name, attrs
 }
 
-// record marks the span failed for a call error or a tool error result.
+// record marks the span failed for a call error or a tool error result. A
+// JSON-RPC error is classified by its code.
 func record(span trace.Span, res mcp.Result, err error) {
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
+		if rpcErr, ok := errors.AsType[*jsonrpc.Error](err); ok {
+			code := strconv.FormatInt(rpcErr.Code, 10)
+			span.SetAttributes(
+				semconv.ErrorTypeKey.String(code),
+				semconv.RPCResponseStatusCode(code),
+			)
+			return
+		}
 		span.SetAttributes(semconv.ErrorType(err))
 		return
 	}

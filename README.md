@@ -189,13 +189,17 @@ mcpServer.AddReceivingMiddleware(telemetry.Middleware(tracerProvider))
 ```
 
 Spans are named `tools/call <tool>`, `prompts/get <prompt>`, or the method
-name. A call error or a tool result with `IsError` marks the span failed.
+name. A call error or a tool result with `IsError` marks the span failed; a
+JSON-RPC error records its code.
 Notifications are not traced. Outbound calls made with the handler context,
 such as `otelhttp` client requests, nest under the request span.
 
 A client continues its own trace by sending W3C `traceparent` and `tracestate`
-in the request's `params._meta`. Use `telemetry.WithPropagator` to read other
-formats.
+in the request's `params._meta`. MCP carries trace context in messages, not
+HTTP headers, because one HTTP request can carry several MCP messages and
+stdio has no headers. When both exist, the `_meta` parent wins and the
+ambient span, such as an `otelhttp` handler span, becomes a link. Use
+`telemetry.WithPropagator` to read other formats.
 
 ### Result envelopes
 
