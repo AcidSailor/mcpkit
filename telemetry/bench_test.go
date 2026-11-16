@@ -12,7 +12,7 @@ import (
 
 func BenchmarkMiddleware(b *testing.B) {
 	tp := sdktrace.NewTracerProvider()
-	h := telemetry.Middleware(tp)(nop)
+	h := telemetry.TraceReceiving(tp)(nop)
 	req := &mcp.ServerRequest[*mcp.CallToolParamsRaw]{
 		Session: &mcp.ServerSession{},
 		Params: &mcp.CallToolParamsRaw{

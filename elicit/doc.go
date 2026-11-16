@@ -18,4 +18,14 @@
 //
 // Stateless HTTP supports gated writes for protocol 2026-07-28 and later.
 // Earlier clients need stdio or a stateful HTTP handler.
+//
+// BoundedConfirmation checks the message before returning an input request.
+// It panics with ErrInvalidLimits when either limit is below 1; oversized
+// messages return ErrPromptOverflow and prevent the write. CheckPrompt returns
+// ErrInvalidLimits instead of panicking.
+//
+// DefaultLimits allows 4 lines and 100 runes per line. This targets Claude Code
+// 2.1.312, whose collapsed display hides excess lines and clips terminal width.
+// Width counts runes, not display columns: CJK, emoji, and tabs can be wider.
+// Put the action, object, and irreversible consequences first.
 package elicit

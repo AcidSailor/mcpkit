@@ -21,6 +21,7 @@ type Server struct {
 	transport       Transport
 	shutdownTimeout time.Duration
 	httpServer      *http.Server
+	logger          *slog.Logger
 }
 
 // Option configures a Server.
@@ -41,6 +42,11 @@ func WithHTTPServer(srv *http.Server) Option {
 	return func(s *Server) { s.httpServer = srv }
 }
 
+// WithLogger sets the lifecycle logger; nil disables logging.
+func WithLogger(l *slog.Logger) Option {
+	return func(s *Server) { s.logger = l }
+}
+
 // New builds a Server wrapping mcpServer (default: Stdio, 30s shutdown).
 func New(mcpServer *mcp.Server, opts ...Option) *Server {
 	s := &Server{
@@ -50,6 +56,9 @@ func New(mcpServer *mcp.Server, opts ...Option) *Server {
 	}
 	for _, o := range opts {
 		o(s)
+	}
+	if s.logger == nil {
+		s.logger = slog.New(slog.DiscardHandler)
 	}
 	return s
 }
@@ -101,7 +110,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 }
 
 func (s *Server) serveStdio(ctx context.Context) error {
-	slog.InfoContext(ctx, "server running on stdio")
+	s.logger.InfoContext(ctx, "server running on stdio")
 	err := s.MCP.Run(ctx, &mcp.StdioTransport{})
 	// Cancellation is normal shutdown; other errors are failures.
 	if err == nil || errors.Is(err, context.Canceled) {
@@ -116,7 +125,7 @@ func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
 		scheme = "https"
 		serve = func() error { return hs.ListenAndServeTLS("", "") }
 	}
-	slog.InfoContext(ctx, "server running on "+scheme, "addr", hs.Addr)
+	s.logger.InfoContext(ctx, "server running on "+scheme, "addr", hs.Addr)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- serve() }()
 	select {
@@ -124,6 +133,11 @@ func (s *Server) serveHTTP(ctx context.Context, hs *http.Server) error {
 		// An early return is a startup or runtime failure.
 		return fmt.Errorf("%w: %w", ErrServe, err)
 	case <-ctx.Done():
+		s.logger.InfoContext(
+			context.WithoutCancel(ctx),
+			"server shutting down", "addr", hs.Addr,
+			"timeout", s.shutdownTimeout,
+		)
 		// Shutdown leaves the buffered http.ErrServerClosed unread.
 		return s.shutdown(hs)
 	}

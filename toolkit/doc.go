@@ -16,4 +16,14 @@
 //
 // MCP structured results require an object root. Items, Value, WrapItems, and
 // WrapValue provide object envelopes for slice and scalar results.
+//
+// New infers In/Out from the call function; the SDK reflects nil schemas.
+// Read defaults are read-only and idempotent; write defaults are destructive
+// and non-idempotent. AddRead rejects elicitation or a gate ID. Annotation
+// conflicts panic with ErrReadOnlyMismatch or ErrDestructiveRead.
+// Without a custom prompt, AddWrite asks Run <name>?.
+//
+// Ordinary handler errors gain the tool name through %w. A *jsonrpc.Error is
+// returned unchanged because the SDK checks its concrete type. The package
+// re-exports elicit sentinels. Items.MarshalJSON encodes a nil slice as [].
 package toolkit
