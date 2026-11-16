@@ -12,9 +12,9 @@
 // Both runs stdio and HTTP concurrently; either transport stopping cancels the
 // other. New defaults to Stdio and a 30-second shutdown timeout.
 //
-// HTTP and Both require a server, handler, and valid address; missing or invalid
-// values return ErrNoHTTPServer, ErrNilHandler, or ErrInvalidAddr. HTTPS requires
-// caller-provided certificates.
+// HTTP and Both require a server, handler, and valid address. Invalid
+// configurations return ErrNoHTTPServer, ErrNilHandler, or ErrInvalidAddr.
+// HTTPS requires caller-provided certificates.
 //
 // Prefer StreamableHTTPOptions{Stateless: true, JSONResponse: true}. Stateless
 // permits negotiation of protocol 2026-07-28; stateful limits it to 2025-11-25.

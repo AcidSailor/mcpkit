@@ -405,3 +405,33 @@ func TestNilPropagatorPanics(t *testing.T) {
 		telemetry.TraceReceiving(tp, telemetry.WithPropagator(nil))
 	})
 }
+
+// writingPropagator exercises the incoming carrier's read-only boundary.
+type writingPropagator struct{ propagation.TextMapPropagator }
+
+func (p writingPropagator) Extract(
+	ctx context.Context, carrier propagation.TextMapCarrier,
+) context.Context {
+	carrier.Set("custom", "changed")
+	return p.TextMapPropagator.Extract(ctx, carrier)
+}
+
+func TestReceivingMetadataRemainsReadOnly(t *testing.T) {
+	for _, md := range []mcp.Meta{nil, {"custom": "original"}} {
+		tp, _ := recorder(t)
+		req := &mcp.ServerRequest[*mcp.PingParams]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.PingParams{Meta: md},
+		}
+		middleware := telemetry.TraceReceiving(tp, telemetry.WithPropagator(
+			writingPropagator{propagation.TraceContext{}},
+		))
+		_, err := middleware(nop)(t.Context(), "ping", req)
+		require.NoError(t, err)
+		if md == nil {
+			require.Nil(t, req.Params.Meta)
+		} else {
+			require.Equal(t, "original", req.Params.Meta["custom"])
+		}
+	}
+}

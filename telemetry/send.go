@@ -13,7 +13,9 @@ import (
 func TraceSending(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 	tracer, propagator := tracing(tp, opts)
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
-		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		return func(
+			ctx context.Context, method string, req mcp.Request,
+		) (mcp.Result, error) {
 			name, attrs := describe(method, params(req), req.GetSession())
 			ctx, span := tracer.Start(ctx, name,
 				trace.WithSpanKind(trace.SpanKindClient),
@@ -29,7 +31,10 @@ func TraceSending(tp trace.TracerProvider, opts ...Option) mcp.Middleware {
 			for _, key := range propagator.Fields() {
 				delete(md, key)
 			}
-			propagator.Inject(ctx, metaCarrier(md))
+			propagator.Inject(
+				ctx,
+				mutableMetaCarrier{metaCarrier: metaCarrier(md)},
+			)
 			p.SetMeta(md)
 			res, err := next(ctx, method, out)
 			record(span, res, err)

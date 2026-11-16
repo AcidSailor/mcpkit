@@ -41,7 +41,9 @@ func TestTraceSendingTool(t *testing.T) {
 	h := &recordHandler{}
 	c.AddSendingMiddleware(
 		func(next mcp.MethodHandler) mcp.MethodHandler {
-			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			return func(
+				ctx context.Context, method string, req mcp.Request,
+			) (mcp.Result, error) {
 				if method != "tools/call" {
 					return next(ctx, method, req)
 				}
@@ -53,7 +55,9 @@ func TestTraceSendingTool(t *testing.T) {
 		},
 		telemetry.TraceSending(tp),
 		func(next mcp.MethodHandler) mcp.MethodHandler {
-			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			return func(
+				ctx context.Context, method string, req mcp.Request,
+			) (mcp.Result, error) {
 				if method == "tools/call" {
 					// SDK client sends use this concrete generic request.
 					r, ok := req.(*mcp.ClientRequest[mcp.Params])
@@ -135,7 +139,9 @@ func TestTraceSendingNotification(t *testing.T) {
 	got := make(chan mcp.Meta, 1)
 	c := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"},
 		&mcp.ClientOptions{
-			ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
+			ProgressNotificationHandler: func(
+				_ context.Context, req *mcp.ProgressNotificationClientRequest,
+			) {
 				got <- req.Params.Meta
 			},
 		})
@@ -221,7 +227,9 @@ func TestTraceSendingCustomPropagator(t *testing.T) {
 	s.AddReceivingMiddleware(
 		telemetry.TraceReceiving(tp, telemetry.WithPropagator(prop)),
 		func(next mcp.MethodHandler) mcp.MethodHandler {
-			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			return func(
+				ctx context.Context, method string, req mcp.Request,
+			) (mcp.Result, error) {
 				if method == "ping" {
 					got <- baggage.FromContext(ctx).Member("tenant").Value()
 				}

@@ -36,7 +36,9 @@ func (o Outcome) DefaultLevel() slog.Level {
 }
 
 // LevelFunc selects severity and whether to emit the record.
-type LevelFunc func(method string, outcome Outcome, err error) (level slog.Level, emit bool)
+type LevelFunc func(
+	method string, outcome Outcome, err error,
+) (level slog.Level, emit bool)
 
 // PayloadFunc selects request and result attributes to log.
 type PayloadFunc func(method string, p mcp.Params, res mcp.Result) []slog.Attr

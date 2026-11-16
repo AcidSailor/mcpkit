@@ -199,7 +199,7 @@ func params(req mcp.Request) mcp.Params {
 	return p
 }
 
-// metaCarrier adapts _meta; Get reads only string values.
+// metaCarrier adapts incoming _meta; Get reads only string values.
 type metaCarrier map[string]any
 
 func (m metaCarrier) Get(key string) string {
@@ -207,8 +207,17 @@ func (m metaCarrier) Get(key string) string {
 	return s
 }
 
-func (m metaCarrier) Set(key, value string) { m[key] = value }
+func (metaCarrier) Set(string, string) {}
 
 func (m metaCarrier) Keys() []string {
 	return slices.Collect(maps.Keys(m))
+}
+
+// mutableMetaCarrier writes injected values into the metadata map.
+type mutableMetaCarrier struct{ metaCarrier }
+
+func (m mutableMetaCarrier) Set(
+	key, value string,
+) {
+	m.metaCarrier[key] = value
 }

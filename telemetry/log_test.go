@@ -375,7 +375,9 @@ func TestLogNotifications(t *testing.T) {
 			)}
 			if discard {
 				opts = append(opts, telemetry.WithLevelFunc(
-					func(method string, o telemetry.Outcome, _ error) (slog.Level, bool) {
+					func(
+						method string, o telemetry.Outcome, _ error,
+					) (slog.Level, bool) {
 						return o.DefaultLevel(), method != "notifications/progress"
 					},
 				))
@@ -383,7 +385,9 @@ func TestLogNotifications(t *testing.T) {
 			done := make(chan struct{})
 			s.AddReceivingMiddleware(
 				func(next mcp.MethodHandler) mcp.MethodHandler {
-					return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+					return func(
+						ctx context.Context, method string, req mcp.Request,
+					) (mcp.Result, error) {
 						if method == "notifications/progress" {
 							defer close(done)
 						}
