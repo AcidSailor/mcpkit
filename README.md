@@ -16,7 +16,7 @@ helpers. The only executable is `cmd/mcpbstage`, which stages `.mcpb` bundles.
 - `openapi` derives tool schemas from a dereferenced OpenAPI document.
 - `validate` provides input validators with matchable error sentinels.
 - `telemetry` traces MCP requests with a caller-supplied OpenTelemetry
-  `TracerProvider`.
+  `TracerProvider` and logs them to a caller-supplied `*slog.Logger`.
 - `mcptest` creates in-memory client and server sessions for tests.
 
 ## Requirements
@@ -119,6 +119,8 @@ func main() {
 `server.HTTP` and `server.Both` require a caller-configured `*http.Server`.
 Use a stateless streamable HTTP handler for protocol `2026-07-28` clients.
 Clients on older protocols need stdio or a stateful handler to run gated writes.
+`server.WithLogger` sets the logger for lifecycle events; without it, the
+server logs nothing.
 
 ### Resources
 
@@ -180,19 +182,19 @@ templates := mcptest.ListResourceTemplateURIs(t, session)
 
 ### Tracing
 
-`telemetry.Middleware` starts one server span per MCP request. Span names and
+`telemetry.TraceReceiving` starts one server span per MCP request. Span names and
 parenting follow the MCP semantic conventions, and spans carry a subset of
 their attributes. Pass the `TracerProvider` you configured; the
 package never reads OpenTelemetry globals and configures no exporter:
 
 ```go
-mcpServer.AddReceivingMiddleware(telemetry.Middleware(tracerProvider))
+mcpServer.AddReceivingMiddleware(telemetry.TraceReceiving(tracerProvider))
 ```
 
 Spans are named `tools/call <tool>`, `prompts/get <prompt>`, or the method
 name. A call error or a tool result with `IsError` marks the span failed; a
 JSON-RPC error records its code.
-Notifications are not traced. Outbound calls made with the handler context,
+Incoming notifications also get a server span. Outbound calls made with the handler context,
 such as `otelhttp` client requests, nest under the request span.
 
 A client continues its own trace by sending W3C `traceparent` and `tracestate`
@@ -206,6 +208,99 @@ a composite propagator that includes `propagation.Baggage`.
 The ambient span is the one in the handler context. Stateless streamable HTTP
 gives each request its own context. A stateful session keeps the context of
 the HTTP request that created it, so later requests see that request's span.
+
+Outgoing MCP calls and notifications can continue the same trace:
+
+```go
+mcpServer.AddSendingMiddleware(telemetry.TraceSending(tracerProvider))
+```
+
+`TraceSending` starts a client span from the supplied context and injects
+that span into a copy of `params._meta`. It preserves unrelated metadata
+and concrete SDK request/params types. Configured propagation fields are
+replaced so reused params cannot carry stale trace context. Without a
+parent in the context, the send starts a new trace. Notification spans end
+when sending completes, not when the peer finishes handling the message.
+Both tracing constructors also work on an SDK client.
+
+The middleware copies only the structs and metadata it modifies. It does
+not mutate the params it receives, though the SDK may add its own protocol
+metadata before invoking middleware.
+
+API migration: `telemetry.Middleware` is now `telemetry.TraceReceiving`;
+the previous `LogMiddleware` name is now `Log`.
+
+### Request logging
+
+`telemetry.Log` logs requests and notifications to the
+`*slog.Logger` you pass. It complements tracing and does not repeat it: the
+record has the span name as its message, such as `tools/call echo`, a level,
+and an `outcome`. The request attributes, duration, and error stay on the
+span, and the record's trace context links the two:
+
+| Outcome | Level | Cause |
+|---|---|---|
+| `ok` | Info | Success. |
+| `input_required` | Info | A tool, prompt, or resource requested input. |
+| `declined`, `canceled` | Info | The user declined or canceled the prompt. |
+| `tool_error` | Warn | The tool result has `IsError`. |
+| `error` | Error | The request failed with a call error. |
+
+Use `WithLevelFunc` to change severity while keeping the outcome and the
+client response unchanged. For example, to skip notifications and log invalid-params errors at Info:
+
+```go
+logs := telemetry.Log(logger, telemetry.WithLevelFunc(
+    func(method string, o telemetry.Outcome, err error) (slog.Level, bool) {
+        if strings.HasPrefix(method, "notifications/") {
+            return 0, false
+        }
+        if e, ok := errors.AsType[*jsonrpc.Error](err); ok &&
+            o == telemetry.OutcomeError && e.Code == jsonrpc.CodeInvalidParams {
+            return slog.LevelInfo, true
+        }
+        return o.DefaultLevel(), true
+    },
+))
+```
+
+Params and results are not logged by default because they can hold secrets
+and personal data. `telemetry.WithPayload` takes a function that returns the
+attributes to add, so you choose what to log and how to redact it.
+
+Pass tracing first in one AddReceivingMiddleware call, as below. With
+separate calls, register logging first and tracing last: the last call wraps
+the existing handler. Both forms let tracing pass its span to logging. An
+OpenTelemetry log bridge such as `otelslog` then sets the record's trace and
+span IDs, as it does for records your handlers log with the request context:
+
+```go
+logger := slog.New(otelslog.NewHandler(
+    "myserver",
+    otelslog.WithLoggerProvider(loggerProvider),
+))
+mcpServer.AddReceivingMiddleware(
+    telemetry.TraceReceiving(tracerProvider),
+    telemetry.Log(logger),
+)
+```
+
+The same logger middleware can be installed for outgoing messages:
+
+```go
+mcpServer.AddSendingMiddleware(
+    telemetry.TraceSending(tracerProvider),
+    telemetry.Log(logger.With("direction", "send")),
+)
+```
+
+For an outgoing notification, `ok` means send completion, not confirmation
+that the peer handled it. A tool error received from the peer has no Go
+error in `GetError()`, so `WithLevelFunc` receives a nil cause for it.
+
+Pass the same logger as `mcp.ServerOptions.Logger` to include the SDK's
+session events. The SDK logs them without a request context, so they carry
+no trace. A stdio server must not log to stdout.
 
 ### Result envelopes
 

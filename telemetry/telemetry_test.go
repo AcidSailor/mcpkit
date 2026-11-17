@@ -51,8 +51,7 @@ func recorder(
 	return tp, sr
 }
 
-// tracedServer returns a traced server with a tool, a resource, and two
-// prompts, one of which fails.
+// tracedServer registers a tool, a resource, and two prompts.
 func tracedServer(
 	t *testing.T,
 	opts ...telemetry.Option,
@@ -60,7 +59,7 @@ func tracedServer(
 	t.Helper()
 	tp, sr := recorder(t)
 	s := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "0"}, nil)
-	s.AddReceivingMiddleware(telemetry.Middleware(tp, opts...))
+	s.AddReceivingMiddleware(telemetry.TraceReceiving(tp, opts...))
 	mcp.AddTool(
 		s,
 		&mcp.Tool{Name: "echo", Description: "echo"},
@@ -177,6 +176,13 @@ func TestToolErrorSpan(t *testing.T) {
 	s := span(t, sr, "tools/call echo")
 	require.Equal(t, codes.Error, s.Status().Code)
 	require.Equal(t, "tool_error", attrs(s)["error.type"])
+	// The SDK keeps the handler's error, which the span records.
+	require.Len(t, s.Events(), 1)
+	require.Contains(
+		t,
+		s.Events()[0].Attributes,
+		attribute.String("exception.message", "boom"),
+	)
 }
 
 func TestCallErrorSpan(t *testing.T) {
@@ -264,8 +270,7 @@ func TestNonStringMetaIgnored(t *testing.T) {
 	require.False(t, span(t, sr, "tools/call echo").Parent().IsValid())
 }
 
-// TestPingSpan covers the SDK's typed nil params for a request without
-// params.
+// Ping supplies typed-nil params.
 func TestPingSpan(t *testing.T) {
 	cs, sr := tracedSession(t)
 	require.NoError(t, cs.Ping(t.Context(), nil))
@@ -273,8 +278,7 @@ func TestPingSpan(t *testing.T) {
 	span(t, sr, "ping")
 }
 
-// direct calls the middleware for what mcptest cannot produce and returns
-// the one span it ends.
+// direct covers cases mcptest cannot produce and returns the ended span.
 func direct(
 	t *testing.T,
 	ctx context.Context,
@@ -283,14 +287,13 @@ func direct(
 ) sdktrace.ReadOnlySpan {
 	t.Helper()
 	tp, sr := recorder(t)
-	_, err := telemetry.Middleware(tp)(nop)(ctx, method, req)
+	_, err := telemetry.TraceReceiving(tp)(nop)(ctx, method, req)
 	require.NoError(t, err)
 	require.Len(t, sr.Ended(), 1)
 	return sr.Ended()[0]
 }
 
-// TestSubscribeResourceURI hand-builds the request: protocol 2026-07-28
-// clients, including mcptest's, use subscriptions/listen instead.
+// Current clients use subscriptions/listen, so build a legacy request.
 func TestSubscribeResourceURI(t *testing.T) {
 	for method, req := range map[string]mcp.Request{
 		"resources/subscribe": &mcp.ServerRequest[*mcp.SubscribeParams]{
@@ -317,7 +320,7 @@ func TestEmptyToolNameSpan(t *testing.T) {
 	span(t, sr, "tools/call")
 }
 
-func TestNotificationsNotTraced(t *testing.T) {
+func TestNotificationSpan(t *testing.T) {
 	s, sr := tracedServer(t)
 	seen := make(chan struct{}, 1)
 	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
@@ -337,20 +340,23 @@ func TestNotificationsNotTraced(t *testing.T) {
 
 	require.NoError(t, cs.NotifyProgress(
 		t.Context(),
-		&mcp.ProgressNotificationParams{ProgressToken: "p", Progress: 1},
+		&mcp.ProgressNotificationParams{
+			Meta:          mcp.Meta{"traceparent": traceparent},
+			ProgressToken: "p", Progress: 1,
+		},
 	))
 	select {
 	case <-seen:
 	case <-time.After(5 * time.Second):
 		t.Fatal("progress notification did not reach the server")
 	}
-	for _, s := range sr.Ended() {
-		require.NotContains(t, s.Name(), "notifications/")
-	}
+	got := span(t, sr, "notifications/progress")
+	require.Equal(t, trace.SpanKindServer, got.SpanKind())
+	require.Equal(t, traceID, got.Parent().TraceID().String())
+	require.Equal(t, spanID, got.Parent().SpanID().String())
 }
 
-// httpSpan stands in for an HTTP server span in the handler context.
-// mcptest connects with a background context, so it cannot supply one.
+// httpSpan models the ambient HTTP span absent from mcptest sessions.
 var httpSpan = trace.NewSpanContext(trace.SpanContextConfig{
 	TraceID:    trace.TraceID{1},
 	SpanID:     trace.SpanID{1},
@@ -389,13 +395,43 @@ func TestAmbientParentWithoutMeta(t *testing.T) {
 
 func TestNilTracerProviderPanics(t *testing.T) {
 	require.PanicsWithValue(t, telemetry.ErrNilTracerProvider, func() {
-		telemetry.Middleware(nil)
+		telemetry.TraceReceiving(nil)
 	})
 }
 
 func TestNilPropagatorPanics(t *testing.T) {
 	tp, _ := recorder(t)
 	require.PanicsWithValue(t, telemetry.ErrNilPropagator, func() {
-		telemetry.Middleware(tp, telemetry.WithPropagator(nil))
+		telemetry.TraceReceiving(tp, telemetry.WithPropagator(nil))
 	})
+}
+
+// writingPropagator exercises the incoming carrier's read-only boundary.
+type writingPropagator struct{ propagation.TextMapPropagator }
+
+func (p writingPropagator) Extract(
+	ctx context.Context, carrier propagation.TextMapCarrier,
+) context.Context {
+	carrier.Set("custom", "changed")
+	return p.TextMapPropagator.Extract(ctx, carrier)
+}
+
+func TestReceivingMetadataRemainsReadOnly(t *testing.T) {
+	for _, md := range []mcp.Meta{nil, {"custom": "original"}} {
+		tp, _ := recorder(t)
+		req := &mcp.ServerRequest[*mcp.PingParams]{
+			Session: &mcp.ServerSession{},
+			Params:  &mcp.PingParams{Meta: md},
+		}
+		middleware := telemetry.TraceReceiving(tp, telemetry.WithPropagator(
+			writingPropagator{propagation.TraceContext{}},
+		))
+		_, err := middleware(nop)(t.Context(), "ping", req)
+		require.NoError(t, err)
+		if md == nil {
+			require.Nil(t, req.Params.Meta)
+		} else {
+			require.Equal(t, "original", req.Params.Meta["custom"])
+		}
+	}
 }

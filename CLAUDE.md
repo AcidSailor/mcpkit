@@ -1,264 +1,69 @@
-# CLAUDE.md
+# mcpkit
 
-Guidance for work in this repository.
-
-## Project
-
-`mcpkit` is a Go library of shared primitives for MCP servers built with the
-official
-[`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
-It wraps the SDK; it does not implement the MCP protocol.
-
-- Module: `github.com/acidsailor/mcpkit`
-- Go: 1.27
-- The root package exports no API.
-- Importable code is in subpackages.
-- `cmd/mcpbstage` is a build-time CLI, not library API.
+Go 1.27 library built on modelcontextprotocol/go-sdk.
+Module: github.com/acidsailor/mcpkit. Public APIs live in subpackages;
+the root exports nothing. cmd/mcpbstage is a build-time CLI.
 
 ## Commands
 
-Use [Task](https://taskfile.dev) through `taskfile.yml`:
+- `task test`: all tests; `go test ./toolkit -run TestName` for one test.
+- `task ci`: read-only formatting and lint checks.
+- `task lint`: formatting and lint fixes.
+- `task check`: lint fixes, then tests.
+- `task update`: update the Copier template.
 
-- `task test`: run `go test ./...`.
-- `task lint`: format and lint with automatic fixes.
-- `task ci`: run read-only format and lint checks.
-- `task check`: run `task lint` and `task test`.
-- `task update`: update the go-scaffolds template with Copier.
+Use the checked-in golangci-lint config. Keep lines within 80 columns.
 
-Run one test with `go test ./toolkit/ -run TestName -v`.
+## Conventions
 
-Linting uses golangci-lint v2, `modernize`, `gofumpt`, and `golines`. Keep lines
-at 80 columns or fewer. CI uses
-`acidsailor/go-scaffolds/.github/workflows/go-ci.yml@v1`.
+- Keep code comments to one concise line; put detailed contracts in doc.go.
+- Inject caller-owned dependencies. Do not configure OTel globals/exporters.
+- Keep package sentinels in errors.go; wrap errors with context and %w.
+- Preserve *jsonrpc.Error unchanged in toolkit: the SDK checks its concrete
+  type, and wrapping changes the wire response.
+- Keep logging opt-in. server defaults to a discarding logger.
+- End every PR description with "🤖 Assisted with AI 🤖".
 
 ## Packages
 
-- `server`: transport selection, serving, and graceful shutdown.
-- `toolkit`: typed tool registration.
-- `resource`: static and URI-template resources.
-- `registry`: server-independent tool and resource descriptors.
-- `elicit`: write-tool confirmation gates.
-- `openapi`: schema assembly from dereferenced OpenAPI documents.
-- `validate`: input validators.
-- `telemetry`: OpenTelemetry tracing middleware.
-- `mcptest`: in-memory MCP test sessions.
-- `cmd/mcpbstage`: stages `.mcpb` bundle contents from GoReleaser output.
+- server: transports and shutdown; callers supply the complete http.Server.
+- toolkit: typed tool registration and result envelopes.
+- elicit: write confirmation gates and bounded prompts.
+- resource: static and URI-template resources.
+- registry: descriptors bound to servers; Enable.Write gates write tools.
+- openapi: schemas from dereferenced OpenAPI JSON.
+- validate: input validators with matchable errors.
+- telemetry: receiving/sending traces and slog middleware.
+- mcptest: in-memory MCP sessions and resource helpers.
 
-## Errors
+Read each package's doc.go before changing its behavior.
 
-Each package defines its own sentinels in `errors.go`. Do not add a root
-sentinel. Public entry points must wrap the package sentinel and useful context
-with `%w`, so callers can use `errors.Is`.
+## Constraints
 
-`toolkit` adds the tool name to ordinary handler errors at registration. It
-must return `*jsonrpc.Error` unchanged because the SDK uses its concrete type to
-preserve the JSON-RPC code and data.
+- Builders are values. Finish the chain before binding method values.
+- Gated writes validate on both passes; validators must have no side effects.
+  Gates confirm intent, not authorization. Clients must check NeedsInput.
+- Prefer stateless HTTP with JSONResponse for current clients. Older clients
+  need stdio or stateful HTTP for gated writes. Stateful replicas need affinity.
+- MCP structured results require an object root; use toolkit envelopes.
+- Keep components.schemas when dereferencing OpenAPI documents.
+- TraceReceiving extracts from params._meta; TraceSending injects into a copy.
+  Preserve concrete SDK request types and caller-owned metadata.
+- Put tracing before Log in one middleware registration call. With separate
+  calls, register tracing last so it wraps logging.
+- Logs omit attributes already on spans. Payloads require WithPayload;
+  WithLevelFunc controls severity and emission.
+- OTel SDK and exporter imports belong only in tests.
 
-## `server`
+## Tests and SDK follow-ups
 
-`server.New` accepts `WithTransport`, `WithShutdownTimeout`, and
-`WithHTTPServer`. `ListenAndServe` validates the configuration, serves until
-the context is canceled, and shuts down gracefully. `Both` runs stdio and HTTP
-concurrently; either transport stopping cancels the other.
+Use testify/require and mcptest. Gated writes need
+NewSessionWithElicitation. Sending tests may connect SDK in-memory transports
+directly to control both endpoints.
 
-HTTP configuration belongs to the caller. `HTTP` and `Both` require a complete
-`*http.Server`, including its handler. The package uses its address, timeouts,
-hooks, and TLS configuration unchanged. A non-nil `TLSConfig` selects
-`ListenAndServeTLS`; the configuration must provide certificates.
+Hand-build requests only for cases sessions cannot produce, such as ambient
+spans, typed-nil sending params, or legacy resources/subscribe. Supply a
+non-nil session. Current clients send server/discover, not initialize.
 
-The caller constructs the handler with `mcp.NewStreamableHTTPHandler` and may
-add middleware or other routes. Invalid HTTP configuration returns:
-
-- `ErrNoHTTPServer` for no server.
-- `ErrNilHandler` for no handler.
-- `ErrInvalidAddr` for a malformed address.
-
-Prefer `mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}`.
-`Stateless: true` permits protocol `2026-07-28`; the client still selects the
-negotiated version. `Stateless: false` limits negotiation to `2025-11-25`.
-`JSONResponse` does not affect negotiation.
-
-Current clients run gated writes over stateless HTTP through multi-round-trip
-input requests. Older clients need stdio or a stateful handler because the SDK
-shim requires a live session. Stateful sessions are in-process; multiple
-replicas require session affinity. SDK list-result caching is active only on
-the stateless path. Tool-call results are not cached.
-
-## `toolkit`
-
-`New` returns a value builder and infers input and output types from the call
-function. A nil input schema is reflected from `In` by the SDK. Use these options
-before registration:
-
-- `WithOutputSchema`
-- `WithValidateFunc`
-- `WithElicitParamsFunc`
-- `WithAnnotations`
-- `WithGateID`
-
-`AddRead` registers a validated read tool. It panics if elicitation or a gate ID
-is configured. `AddWrite` registers a validated, elicitation-gated write tool.
-Without a custom prompt, it asks `Run <name>?`.
-
-Default read annotations are read-only and idempotent. Default write annotations
-are destructive and non-idempotent. `WithAnnotations` replaces the complete
-default set; it does not merge fields. `ReadOnlyHint` must match the access
-category. A read annotation must set `ReadOnlyHint: true` because the SDK uses a
-plain `bool`. A read must not set `DestructiveHint: true`. Conflicts panic with
-`ErrReadOnlyMismatch` or `ErrDestructiveRead`.
-
-A gated handler runs twice: once to ask and once after the client retries. The
-validator runs on both passes and must not have side effects. The call function
-runs only after acceptance.
-
-The gate is not an authorization boundary. A request that already contains a
-response under the gate ID bypasses the prompt. `RequestState` is unsigned, so
-the retry is not bound to the original arguments. Use authentication and
-idempotency controls where required.
-
-The gate does not require the `elicitation` client capability. The SDK rejects
-unsupported clients in its middleware for protocol `2026-07-28` and in
-`ServerSession.Elicit` for earlier protocols. This call error has no matchable
-sentinel.
-
-Clients must check `CallToolResult.NeedsInput`. Ignoring `inputRequests` returns
-an empty successful result without running the write.
-
-`AddReadFunc` and `AddWriteFunc` register custom handlers without adding
-validation or gating. Custom handlers can wrap the exported `Call` and `Gate`
-methods. Bind method values after the builder chain is complete because the
-builder is a value.
-
-MCP structured results require an object root. Use `Items`, `Value`,
-`WrapItems`, or `WrapValue` for slice and scalar results. `Items.MarshalJSON`
-encodes a nil slice as `[]`.
-
-`toolkit` re-exports the `elicit` sentinels.
-
-`elicit.BoundedConfirmation` fails with `ErrPromptOverflow` when a message
-exceeds its `Limits`, so the write does not run. `DefaultLimits()` fits Claude
-Code: it shows 4 lines and cannot expand the rest, and it cuts lines at the
-terminal width. `Width` is a best-effort 100-rune cap; put the action and
-object first and shorten long data fields. A limit below 1 panics with
-`ErrInvalidLimits`.
-
-## `resource`
-
-`New` builds a static resource. `NewTemplate` builds an RFC 6570 resource
-template and supplies the concrete URI and extracted `Vars` to its handler.
-Both are value builders and register with `Add`.
-
-Configuration options are `WithMIMEType`, `WithTitle`, `WithDescription`, and
-`WithAnnotations`. `WithSize` applies only to static resources.
-
-Handlers return one of these `Content` forms:
-
-- `Text`: default `text/plain`.
-- `Blob`: default `application/octet-stream`.
-- `JSON`: always `application/json`.
-- `Raw`: unchanged SDK content blocks; the caller supplies all fields.
-
-`NewText`, `NewBlob`, and `NewJSON` construct the common forms. `Raw` must not
-be empty. The package supplies the URI and fallback MIME type except for `Raw`.
-
-Static `Add` panics on an invalid URI. `NewTemplate` panics on an invalid
-template. `ErrNotFound` and `ErrTemplateMismatch` become the SDK resource
-not-found error on the wire. `ErrInvalidVars` wraps failed `Vars.Int`
-conversion. `ErrNoContent` reports nil content or an empty `Raw`.
-
-The package does not configure resource subscriptions. Configure
-`SubscribeHandler` and `UnsubscribeHandler` when constructing the SDK server.
-SDK list-change notifications work through resource add and remove operations.
-
-## `registry`
-
-`Read`, `Write`, `Resource`, and `ResourceTemplate` create server-independent
-`Registration` values. `New` flattens groups and preserves order. `Bind`
-installs entries on a server. `Enable.Write` controls write tools; resources
-always bind.
-
-`Read` and `Write` take the input and output schemas positionally. Nil schemas
-are reflected from `In` and `Out` by the SDK. The remaining tool options mirror
-`toolkit`. Use `WithToolAnnotations` for tool hints because
-`WithAnnotations` configures resource annotations. Resource options mirror the
-`resource` builder.
-
-## `openapi`
-
-`Parse` accepts JSON for a dereferenced OpenAPI document. Keep
-`components.schemas`; inline all `$ref` values. It also converts OpenAPI 3.0
-`nullable: true` fields to null-permitting JSON Schema types.
-
-`Schemas` provides `ParamsSchema`, `ParamSchema`, `BodySchema`, `Ref`,
-`OutputObject`, `OutputItems`, `OutputValue`, and `Summary`. Returned schemas
-are independent clones.
-
-Only `Parse` returns an error. Accessors panic with `ErrUndefined` for unknown
-paths, operations, parameters, or components because these are configuration
-errors.
-
-## `validate`
-
-- `RequireNonEmpty` rejects blank strings with `ErrEmpty`.
-- `RequireNonZero` rejects zero comparable values with `ErrZero`.
-
-Both validators include the field name in the wrapped error.
-
-## `telemetry`
-
-`Middleware(tp, opts...)` returns receiving middleware for
-`Server.AddReceivingMiddleware`. The caller owns OpenTelemetry setup: the
-provider and propagator are injected, and the package never reads OTel
-globals or configures exporters. A nil provider panics with
-`ErrNilTracerProvider`, and `WithPropagator(nil)` panics with
-`ErrNilPropagator`, both at construction. Do not add an SDK or exporter
-import outside tests.
-
-Each non-notification request gets a server span named `tools/call <tool>`,
-`prompts/get <prompt>`, or the method. Span names and parenting follow the
-MCP semantic conventions; attributes are a subset of theirs, without
-`jsonrpc.request.id`, `mcp.protocol.version`, or network attributes. The
-keys are declared locally: semconv v1.42.0 moved the `gen_ai` and `mcp`
-conventions to the GenAI semantic conventions repository.
-Later Go semconv packages omit them, and v1.41.0 is a frozen snapshot.
-
-A `*jsonrpc.Error` sets `error.type` and `rpc.response.status_code` to its
-code; another call error sets it through `semconv.ErrorType`, which uses an
-`ErrorType()` method or the unwrapped Go type. A tool result with
-`IsError` sets `error.type=tool_error`. All three set the status to `Error`.
-
-The parent comes from `params._meta`. MCP carries trace context in the
-message, not in transport headers. The default propagator is W3C
-TraceContext; `WithPropagator` replaces it. A `_meta` parent replaces the
-ambient span, which becomes a link, as the conventions recommend. The ambient
-span comes from the handler context. A stateful HTTP session keeps the
-context of the request that created it, so only stateless HTTP gives each
-request its own ambient span.
-
-`NewServer` installs the SDK's multi-round-trip shim before any caller
-middleware, so telemetry wraps it. A gated write from a `2026-07-28` client
-gives two `tools/call` spans; from an older client, one span covers both
-passes.
-
-The SDK passes typed nil params for requests without params, such as `ping`.
-`params` turns them into a nil interface, so the type switch needs no nil
-checks. go-sdk after v1.8.0 exports this check as `mcp.HasParams`; use it once
-released.
-
-Test through `mcptest`. Hand-build requests only for what it cannot produce:
-an ambient span, and `resources/subscribe`, which protocol `2026-07-28`
-clients replace with `subscriptions/listen`. Sessions are never nil, so give
-hand-built requests `&mcp.ServerSession{}`. Protocol `2026-07-28` also
-replaces `initialize` with `server/discover`; do not assert an `initialize`
-span.
-
-## Tests
-
-Tests use `testify/require`. Prefer end-to-end tests through `mcptest`:
-
-- `NewSession` advertises no elicitation capability.
-- `NewSessionWithElicitation` installs an elicitation handler.
-- `ReadResourceText`, `ReadResourceBlob`, and `ReadResourceJSON` read resources.
-- `ListResourceURIs` and `ListResourceTemplateURIs` test listings.
-
-Use `NewSessionWithElicitation` for gated write tools.
+On an SDK upgrade, check for mcp.HasParams to replace local reflection and
+Request.GetID to populate jsonrpc.request.id.

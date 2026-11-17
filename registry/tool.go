@@ -38,8 +38,7 @@ func WithGateID[In any](id string) Option[In] {
 	return func(o *options[In]) { o.gateID = id }
 }
 
-// Read describes a read-only tool. In/Out are inferred from call.
-// Nil in/out schemas are reflected from In/Out by the SDK.
+// Read describes a read-only tool with inferred In/Out types.
 func Read[In, Out any](
 	name, description string,
 	in, out *jsonschema.Schema,
@@ -55,8 +54,7 @@ func Read[In, Out any](
 	}
 }
 
-// Write describes a state-mutating tool gated by elicitation; In/Out inferred.
-// Nil in/out schemas are reflected from In/Out by the SDK.
+// Write describes an elicitation-gated tool with inferred In/Out types.
 func Write[In, Out any](
 	name, description string,
 	in, out *jsonschema.Schema,

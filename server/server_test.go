@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -36,6 +38,7 @@ func TestNew_Defaults(t *testing.T) {
 	require.Equal(t, Stdio, s.transport)
 	require.Equal(t, 30*time.Second, s.shutdownTimeout)
 	require.Nil(t, s.httpServer)
+	require.Equal(t, slog.DiscardHandler, s.logger.Handler())
 }
 
 func TestNew_Options(t *testing.T) {
@@ -116,7 +119,12 @@ func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
 
 	m := newMCP()
 	base := &http.Server{Addr: addr, Handler: httpHandler(m)}
-	s := New(m, WithTransport(HTTP), WithHTTPServer(base))
+	var logs bytes.Buffer
+	s := New(m,
+		WithTransport(HTTP),
+		WithHTTPServer(base),
+		WithLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
@@ -139,6 +147,8 @@ func TestListenAndServe_HTTPGracefulShutdown(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("ListenAndServe did not return after ctx cancel")
 	}
+	require.Contains(t, logs.String(), `msg="server running on http"`)
+	require.Contains(t, logs.String(), `msg="server shutting down"`)
 }
 
 func TestWithHTTPServer_ServesAsIs(t *testing.T) {

@@ -4,4 +4,9 @@
 //
 // Resources and resource templates (Resource / ResourceTemplate) are read-only
 // and always bind, regardless of Enable.Write.
+//
+// Read and Write take input and output schemas positionally; nil schemas are
+// reflected from In/Out. Tool options mirror toolkit. WithToolAnnotations
+// configures tool hints; WithAnnotations applies to resources.
+// New flattens groups and preserves order.
 package registry

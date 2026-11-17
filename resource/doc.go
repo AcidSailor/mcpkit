@@ -10,4 +10,9 @@
 //
 // The package does not configure resource subscriptions. Configure subscription
 // handlers when constructing the underlying mcp.Server.
+//
+// Text defaults to text/plain, Blob to application/octet-stream, and JSON uses
+// application/json. Raw content is unchanged and must not be empty.
+// WithSize applies only to static resources. ErrInvalidVars wraps failed
+// Vars.Int conversion. SDK list-change notifications follow add/remove calls.
 package resource
